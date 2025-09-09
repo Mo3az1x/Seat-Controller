@@ -1,9 +1,10 @@
-#include <SoftwareSerial.h>
-SoftwareSerial espSerial(10, 11); // RX, TX
+#include <HardwareSerial.h>
+
+HardwareSerial espSerial(2); // RX, TX
 
 void setup() {
-  Serial.begin(115200);       // USB serial
-  espSerial.begin(115200);    // To ESP32
+  Serial.begin(9600);       // USB serial
+  espSerial.begin(9600, SERIAL_8N1, 16, 17);    // To ESP32
 }
 
 void loop() 
