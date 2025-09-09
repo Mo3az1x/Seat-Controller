@@ -1,6 +1,7 @@
 package application;
 
 import com.fazecast.jSerialComm.*;
+import java.nio.charset.StandardCharsets;
 
 public class SerialComm {
 
@@ -62,6 +63,6 @@ public class SerialComm {
     }
 
     public void sendLine(String s) {
-        send((s + "\n").getBytes());
+    send((s + "\n").getBytes(StandardCharsets.UTF_8));
     }
 }

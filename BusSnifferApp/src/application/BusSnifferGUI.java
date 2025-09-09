@@ -16,7 +16,6 @@ public class BusSnifferGUI extends JFrame {
     private JTextField periodicSignal2Field;
     private JTextField periodicRate2Field;
   
-
     // Trace area
     private JTextArea traceArea;
 
@@ -73,13 +72,13 @@ public class BusSnifferGUI extends JFrame {
         periodicPanel.setBorder(BorderFactory.createTitledBorder("Periodic tasks"));
 
         // Periodic Task 1
-        // Periodic Task 1
         periodicPanel.add(new JLabel("Periodic:"));
         periodicSignal1Field = new JTextField(10);
         periodicPanel.add(periodicSignal1Field);
         periodicPanel.add(new JLabel("User Input:"));
         periodicRate1Field = new JTextField(5);
         periodicPanel.add(periodicRate1Field);
+    
 
         // Periodic Task 2
         periodicPanel.add(new JLabel("Periodic:"));
@@ -117,29 +116,37 @@ public class BusSnifferGUI extends JFrame {
     }
 
     private void toggleConnection() {
-        if (sniffer == null) {
-            // Connect
-            String portName = (String) portCombo.getSelectedItem();
-            int baud = Integer.parseInt(baudField.getText().trim());
+    if (sniffer == null) {
+        // Connect
+        String portName = (String) portCombo.getSelectedItem();
+        int baud = Integer.parseInt(baudField.getText().trim());
 
-            sniffer = new SnifferManager();
-            boolean ok = sniffer.start(portName, baud);
-            if (ok) {
-                statusLabel.setText("Connected to " + portName);
-                statusLabel.setBackground(Color.GREEN);
-            } else {
-                statusLabel.setText("Failed to connect!");
-                statusLabel.setBackground(Color.RED);
-                sniffer = null;
-            }
+        // Create SnifferManager with TraceListener
+        sniffer = new SnifferManager(message -> {
+            traceArea.append(message + "\n");
+            traceArea.setCaretPosition(traceArea.getDocument().getLength());
+        });
+
+        boolean ok = sniffer.start(portName, baud);
+        if (ok) {
+            statusLabel.setText("Connected to " + portName);
+            statusLabel.setBackground(Color.GREEN);
+            traceArea.append("Connected to " + portName + " @ " + baud + " baud.\n");
         } else {
-            // Disconnect
-            sniffer.close();
+            statusLabel.setText("Failed to connect!");
+            statusLabel.setBackground(Color.RED);
+            traceArea.append("Failed to open port " + portName + "\n");
             sniffer = null;
-            statusLabel.setText("Disconnected");
-            statusLabel.setBackground(Color.LIGHT_GRAY);
         }
+    } else {
+        // Disconnect
+        sniffer.close();
+        sniffer = null;
+        statusLabel.setText("Disconnected");
+        statusLabel.setBackground(Color.LIGHT_GRAY);
+        traceArea.append("Disconnected from serial port.\n");
     }
+}
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(BusSnifferGUI::new);
