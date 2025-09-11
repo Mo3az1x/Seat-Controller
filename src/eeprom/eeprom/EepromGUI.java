@@ -3,11 +3,13 @@ package eeprom;
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import com.fazecast.jSerialComm.SerialPort;
 
 public class EepromGUI extends JFrame {
     private JComboBox<String> portCombo;
     private JTextField baudField;
     private JTextArea traceArea;
+    private SerialPort serialPort;
 
     // Frame constants
     private static final byte HEADER = 0x7E;
@@ -42,7 +44,6 @@ public class EepromGUI extends JFrame {
 
         JButton connectBtn = new JButton("Connect");
         settingsPanel.add(connectBtn);
-
         add(settingsPanel, BorderLayout.NORTH);
 
         // ===== CENTER: EEPROM Commands =====
@@ -58,7 +59,6 @@ public class EepromGUI extends JFrame {
         commandsPanel.add(writeByteBtn);
         commandsPanel.add(readAllBtn);
         commandsPanel.add(writeAllBtn);
-
         add(commandsPanel, BorderLayout.CENTER);
 
         // ===== BOTTOM: Trace Output =====
@@ -70,16 +70,17 @@ public class EepromGUI extends JFrame {
         JScrollPane scroll = new JScrollPane(traceArea);
         scroll.setPreferredSize(new Dimension(580, 200));
         tracePanel.add(scroll, BorderLayout.CENTER);
-
         add(tracePanel, BorderLayout.SOUTH);
 
-        // ====== Button Actions ======
+        // ===== Button Actions =====
+        connectBtn.addActionListener(e -> connectToArduino());
+
         readByteBtn.addActionListener(e -> {
             String addrStr = JOptionPane.showInputDialog(this, "Enter address (int):");
             if (addrStr != null) {
                 int addr = Integer.parseInt(addrStr);
                 byte[] frame = buildFrame(CMD_READ_BYTE, addr, 0);
-                logFrame("Read Byte", frame);
+                sendFrame("Read Byte", frame);
             }
         });
 
@@ -90,7 +91,7 @@ public class EepromGUI extends JFrame {
                 int addr = Integer.parseInt(addrStr);
                 int val = Integer.parseInt(valStr);
                 byte[] frame = buildFrame(CMD_WRITE_BYTE, addr, val);
-                logFrame("Write Byte", frame);
+                sendFrame("Write Byte", frame);
             }
         });
 
@@ -99,7 +100,7 @@ public class EepromGUI extends JFrame {
             if (sizeStr != null) {
                 int size = Integer.parseInt(sizeStr);
                 byte[] frame = buildFrame(CMD_READ_ALL, size, 0);
-                logFrame("Read All", frame);
+                sendFrame("Read All", frame);
             }
         });
 
@@ -113,19 +114,62 @@ public class EepromGUI extends JFrame {
                     data[i] = (byte) Integer.parseInt(valStr);
                 }
                 byte[] frame = buildWriteAllFrame(data);
-                logFrame("Write All", frame);
+                sendFrame("Write All", frame);
             }
         });
 
         setLocationRelativeTo(null);
         setVisible(true);
+
+        // Start thread to read incoming data from Arduino
+        new Thread(this::readSerial).start();
+    }
+
+    private void connectToArduino() {
+        String portName = (String) portCombo.getSelectedItem();
+        int baudRate = Integer.parseInt(baudField.getText());
+
+        serialPort = SerialPort.getCommPort(portName);
+        serialPort.setBaudRate(baudRate);
+
+        if (serialPort.openPort()) {
+            JOptionPane.showMessageDialog(this, "Connected to " + portName);
+            traceArea.append("Connected to " + portName + "\n");
+        } else {
+            JOptionPane.showMessageDialog(this, "Failed to connect");
+            traceArea.append("Failed to connect to " + portName + "\n");
+        }
+    }
+
+    private void sendFrame(String op, byte[] frame) {
+        traceArea.append(op + " → Frame: " + toHex(frame) + "\n");
+        if (serialPort != null && serialPort.isOpen()) {
+            serialPort.writeBytes(frame, frame.length);
+        }
+    }
+
+    private void readSerial() {
+        byte[] buffer = new byte[1024];
+        while(true) {
+            if(serialPort != null && serialPort.isOpen()) {
+                int bytesRead = serialPort.readBytes(buffer, buffer.length);
+                if(bytesRead > 0) {
+                    StringBuilder response = new StringBuilder();
+                    for(int i=0;i<bytesRead;i++) {
+                        response.append(String.format("%02X ", buffer[i]));
+                    }
+                    traceArea.append("Received: " + response.toString() + "\n");
+                }
+            }
+            try { Thread.sleep(100); } catch(Exception ex){}
+        }
     }
 
     // ===== Frame Builders =====
     private byte[] buildFrame(byte cmd, int p1, int p2) {
         byte[] frame = new byte[12];
         frame[0] = HEADER;
-        frame[1] = 0x00; frame[2] = 0x00; frame[3] = 0x00; frame[4] = 0x05; // length = 5
+        frame[1] = 0x00; frame[2] = 0x00; frame[3] = 0x00; frame[4] = 0x05;
         frame[5] = cmd;
         frame[6] = (byte)((p1 >> 24) & 0xFF);
         frame[7] = (byte)((p1 >> 16) & 0xFF);
@@ -150,15 +194,9 @@ public class EepromGUI extends JFrame {
         return frame;
     }
 
-    private void logFrame(String op, byte[] frame) {
-        traceArea.append(op + " → Frame: " + toHex(frame) + "\n");
-    }
-
     private String toHex(byte[] arr) {
         StringBuilder sb = new StringBuilder();
-        for (byte b : arr) {
-            sb.append(String.format("%02X ", b));
-        }
+        for (byte b : arr) sb.append(String.format("%02X ", b));
         return sb.toString().trim();
     }
 
