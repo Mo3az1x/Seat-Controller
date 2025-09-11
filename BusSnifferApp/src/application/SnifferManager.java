@@ -4,12 +4,33 @@ import javax.swing.SwingUtilities;
 public class SnifferManager implements SerialComm.DataSink, AutoCloseable {
     private final SerialComm serial = new SerialComm();
     private TraceListener listener; // listener for trace messages
+
+    // Frame format constants
+    private static final byte HEADER = 0x7E;
+    private static final byte TAIL   = 0x7F;
+
+    // Command IDs
+    private static final byte CMD_READ_BYTE   = 0x01;
+    private static final byte CMD_WRITE_BYTE  = 0x02;
+    private static final byte CMD_READ_ALL    = 0x03;
+    private static final byte CMD_WRITE_ALL   = 0x04;
+
+    // Response IDs (example: request + 0x80)
+    private static final byte RES_READ_BYTE   = (byte)0x81;
+    private static final byte RES_WRITE_BYTE  = (byte)0x82;
+    private static final byte RES_READ_ALL    = (byte)0x83;
+    private static final byte RES_WRITE_ALL   = (byte)0x84;
+
+    // Buffer for plain text messages
+    private StringBuilder textBuffer = new StringBuilder();
+
     public SnifferManager(TraceListener listener) {
         this.listener = listener;
     }
 
-    
-
+    public SnifferManager(Object listener2) {
+        //TODO Auto-generated constructor stub
+    }
 
     /**
      * Connect to the serial port and start listening
@@ -25,111 +46,143 @@ public class SnifferManager implements SerialComm.DataSink, AutoCloseable {
         return true;
     }
 
+    // ======= EEPROM COMMANDS =======
+    public void sendReadByte(int addr) {
+        byte[] frame = buildFrame(CMD_READ_BYTE, addr, 0);
+        serial.send(frame);
+        log("Sent READ_BYTE addr=" + addr);
+    }
+
+    public void sendWriteByte(int addr, int value) {
+        byte[] frame = buildFrame(CMD_WRITE_BYTE, addr, value);
+        serial.send(frame);
+        log("Sent WRITE_BYTE addr=" + addr + " val=" + value);
+    }
+
+    public void sendReadAll(int size) {
+        byte[] frame = buildFrame(CMD_READ_ALL, size, 0);
+        serial.send(frame);
+        log("Sent READ_ALL size=" + size);
+    }
+
+    public void sendWriteAll(byte[] data) {
+        int len = data.length;
+        byte[] frame = new byte[7 + len]; // 1H + 4L + 1ID + data + 1T
+        frame[0] = HEADER;
+        frame[1] = (byte)((len >> 24) & 0xFF);
+        frame[2] = (byte)((len >> 16) & 0xFF);
+        frame[3] = (byte)((len >> 8) & 0xFF);
+        frame[4] = (byte)(len & 0xFF);
+        frame[5] = CMD_WRITE_ALL;
+        System.arraycopy(data, 0, frame, 6, len);
+        frame[6 + len] = TAIL;
+
+        serial.send(frame);
+        log("Sent WRITE_ALL size=" + len);
+    }
+
+    // Build small frames with 2 params (addr, val)
+    private byte[] buildFrame(byte cmd, int p1, int p2) {
+        byte[] frame = new byte[12]; // 1H + 4L + 1CMD + 4P1 + 1P2 + 1T
+        frame[0] = HEADER;
+        frame[1] = 0x00; frame[2] = 0x00; frame[3] = 0x00; frame[4] = 0x05;
+        frame[5] = cmd;
+        frame[6] = (byte)((p1 >> 24) & 0xFF);
+        frame[7] = (byte)((p1 >> 16) & 0xFF);
+        frame[8] = (byte)((p1 >> 8) & 0xFF);
+        frame[9] = (byte)(p1 & 0xFF);
+        frame[10] = (byte)(p2 & 0xFF);
+        frame[11] = TAIL;
+        return frame;
+    }
+
     /**
-     * Handle incoming bytes from STM
+     * Handle incoming bytes from Arduino
      */
-@Override
+    @Override
     public void onBytes(byte[] data, int len) {
-        String message;
-        String text = tryDecodeUtf8(data, len);
-        if (text != null) message = "TXT: " + text;
-        else message = "HEX: " + hexLine(data, len);
+        if (len < 1) return;
 
-        // Send message to GUI
-        if (listener != null) {
-            SwingUtilities.invokeLater(() -> listener.onTrace(message));
+        // check if it's a framed command/response or plain text
+        if (data[0] == HEADER && data[len - 1] == TAIL) {
+            handleFrame(data, len);
+        } else {
+            showAsText(data, len);
         }
     }
 
-    public void sendCommand(String cmd) {
-        try {
-            byte value = parseCommand(cmd);
-            String hexStr = String.format("%02X", value);
-            serial.sendLine(hexStr);
-            if (listener != null) {
-                SwingUtilities.invokeLater(() -> listener.onTrace("Sent " + cmd + " -> " + hexStr));
-            }
-        } catch (IllegalArgumentException e) {
-            if (listener != null) {
-                SwingUtilities.invokeLater(() -> listener.onTrace("Invalid command: " + cmd + " (" + e.getMessage() + ")"));
-            }
-        }
-    }
+    private void handleFrame(byte[] data, int len) {
+        byte cmdId = data[5]; 
+        String msg = "";
 
-    // Keep the other methods (parseCommand, hexLine, tryDecodeUtf8, close) as they are
-
-    /**
-     * Convert H/S/I command to byte (0-255)
-     */
-    private byte parseCommand(String cmd) {
-        if (cmd == null || cmd.length() < 2) throw new IllegalArgumentException("Invalid command");
-
-        char type = Character.toUpperCase(cmd.charAt(cmd.length() - 1));
-        double value;
-        try {
-            value = Double.parseDouble(cmd.substring(0, cmd.length() - 1));
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid number in command");
-        }
-
-        byte byteValue = 0;
-
-        switch (type) {
-            case 'H': // Height: 2 - 5.3 cm
-                if (value < 2) value = 2;
-                if (value > 5.3) value = 5.3;
-                byteValue = (byte) ((value - 2) / (5.3 - 2) * 255);
+        switch (cmdId) {
+            case RES_READ_BYTE:
+                int addr = ((data[6] & 0xFF) << 24) | ((data[7] & 0xFF) << 16) |
+                           ((data[8] & 0xFF) << 8) | (data[9] & 0xFF);
+                int val = data[10] & 0xFF;
+                msg = "READ_BYTE Response: addr=" + addr + " val=" + val;
                 break;
 
-            case 'S': // Slide: 3 - 7.5 cm
-                if (value < 3) value = 3;
-                if (value > 7.5) value = 7.5;
-                byteValue = (byte) ((value - 3) / (7.5 - 3) * 255);
+            case RES_WRITE_BYTE:
+                msg = "WRITE_BYTE Response: " + (data[6] == 1 ? "OK" : "FAIL");
                 break;
 
-            case 'I': // Incline: 67 - 105 degree
-                if (value < 67) value = 67;
-                if (value > 105) value = 105;
-                byteValue = (byte) ((value - 67) / (105 - 67) * 255);
+            case RES_READ_ALL:
+                msg = "READ_ALL Response: size=" + (len - 7);
+                break;
+
+            case RES_WRITE_ALL:
+                msg = "WRITE_ALL Response: " + (data[6] == 1 ? "OK" : "FAIL");
                 break;
 
             default:
-                throw new IllegalArgumentException("Unknown command type: " + type);
+                msg = "HEX: " + hexLine(data, len);
+                break;
         }
 
-        return byteValue;
+        final String finalMsg = msg;
+        if (listener != null) {
+            SwingUtilities.invokeLater(() -> listener.onTrace(finalMsg));
+        }
     }
 
-    /**
-     * Convert byte array to hex string for logging
-     */
+    private void showAsText(byte[] data, int len) {
+        String part = new String(data, 0, len, java.nio.charset.StandardCharsets.UTF_8);
+        textBuffer.append(part);
+
+        // check if we got a full line
+        if (textBuffer.indexOf("\n") != -1 || textBuffer.indexOf("\r") != -1) {
+            String msg = textBuffer.toString().trim();
+            textBuffer.setLength(0); // reset buffer
+
+            if (listener != null) {
+                SwingUtilities.invokeLater(() -> listener.onTrace("TXT: " + msg));
+            }
+        }
+    }
+
+    private void log(String s) {
+        if (listener != null) {
+            SwingUtilities.invokeLater(() -> listener.onTrace(s));
+        }
+    }
+
     private String hexLine(byte[] data, int len) {
         StringBuilder sb = new StringBuilder(len * 3);
         for (int i = 0; i < len; i++) sb.append(String.format("%02X ", data[i]));
         return sb.toString().trim();
     }
 
-    /**
-     * Try decoding bytes as UTF-8 text
-     */
-    private String tryDecodeUtf8(byte[] data, int len) {
-        try {
-            String s = new String(data, 0, len, java.nio.charset.StandardCharsets.UTF_8);
-            int printable = 0;
-            for (int i = 0; i < s.length(); i++) {
-                char c = s.charAt(i);
-                if ((c >= 32 && c <= 126) || c == '\n' || c == '\r' || c == '\t') printable++;
-            }
-            if (printable * 2 >= s.length()) return s;
-            return null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     @Override
     public void close() {
         serial.disconnect();
     }
+
+    public void sendCommand(String line) {
+        throw new UnsupportedOperationException("Unimplemented method 'sendCommand'");
+    }
+
+    public void sendRaw(byte[] bytes) {
+        throw new UnsupportedOperationException("Unimplemented method 'sendRaw'");
+    }
 }
-    
