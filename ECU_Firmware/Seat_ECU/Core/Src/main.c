@@ -45,16 +45,59 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
+SPI_HandleTypeDef hspi2;
+
 UART_HandleTypeDef huart1;
 
-osThreadId ControlManagerHandle;
-osThreadId ModeManagerHandle;
-osThreadId ProfileManagerHandle;
-osThreadId FaultManagerHandle;
-osMessageQId ControlQueueHandle;
-osMessageQId ModeQueueHandle;
-osMessageQId ProfileQueueHandle;
-osMessageQId FaultQueueHandle;
+/* Definitions for ControlManager */
+osThreadId_t ControlManagerHandle;
+const osThreadAttr_t ControlManager_attributes = {
+  .name = "ControlManager",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for ModeManager */
+osThreadId_t ModeManagerHandle;
+const osThreadAttr_t ModeManager_attributes = {
+  .name = "ModeManager",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for ProfileManager */
+osThreadId_t ProfileManagerHandle;
+const osThreadAttr_t ProfileManager_attributes = {
+  .name = "ProfileManager",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for FaultManager */
+osThreadId_t FaultManagerHandle;
+const osThreadAttr_t FaultManager_attributes = {
+  .name = "FaultManager",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for ControlQueue */
+osMessageQueueId_t ControlQueueHandle;
+const osMessageQueueAttr_t ControlQueue_attributes = {
+  .name = "ControlQueue"
+};
+/* Definitions for ModeQueue */
+osMessageQueueId_t ModeQueueHandle;
+const osMessageQueueAttr_t ModeQueue_attributes = {
+  .name = "ModeQueue"
+};
+/* Definitions for ProfileQueue */
+osMessageQueueId_t ProfileQueueHandle;
+const osMessageQueueAttr_t ProfileQueue_attributes = {
+  .name = "ProfileQueue"
+};
+/* Definitions for FaultQueue */
+osMessageQueueId_t FaultQueueHandle;
+const osMessageQueueAttr_t FaultQueue_attributes = {
+  .name = "FaultQueue"
+};
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -65,10 +108,11 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
-void ControlManagerTask(void const * argument);
-void ModeManagerTask(void const * argument);
-void ProfileManagerTask(void const * argument);
-void FaultManagerTask(void const * argument);
+static void MX_SPI2_Init(void);
+void ControlManagerTask(void *argument);
+void ModeManagerTask(void *argument);
+void ProfileManagerTask(void *argument);
+void FaultManagerTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -111,9 +155,13 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
+
+  /* Init scheduler */
+  osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -128,46 +176,42 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
-  /* definition and creation of ControlQueue */
-  osMessageQDef(ControlQueue, 16, uint16_t);
-  ControlQueueHandle = osMessageCreate(osMessageQ(ControlQueue), NULL);
+  /* creation of ControlQueue */
+  ControlQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &ControlQueue_attributes);
 
-  /* definition and creation of ModeQueue */
-  osMessageQDef(ModeQueue, 16, uint16_t);
-  ModeQueueHandle = osMessageCreate(osMessageQ(ModeQueue), NULL);
+  /* creation of ModeQueue */
+  ModeQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &ModeQueue_attributes);
 
-  /* definition and creation of ProfileQueue */
-  osMessageQDef(ProfileQueue, 16, uint16_t);
-  ProfileQueueHandle = osMessageCreate(osMessageQ(ProfileQueue), NULL);
+  /* creation of ProfileQueue */
+  ProfileQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &ProfileQueue_attributes);
 
-  /* definition and creation of FaultQueue */
-  osMessageQDef(FaultQueue, 16, uint16_t);
-  FaultQueueHandle = osMessageCreate(osMessageQ(FaultQueue), NULL);
+  /* creation of FaultQueue */
+  FaultQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &FaultQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* definition and creation of ControlManager */
-  osThreadDef(ControlManager, ControlManagerTask, osPriorityNormal, 0, 128);
-  ControlManagerHandle = osThreadCreate(osThread(ControlManager), NULL);
+  /* creation of ControlManager */
+  ControlManagerHandle = osThreadNew(ControlManagerTask, NULL, &ControlManager_attributes);
 
-  /* definition and creation of ModeManager */
-  osThreadDef(ModeManager, ModeManagerTask, osPriorityIdle, 0, 128);
-  ModeManagerHandle = osThreadCreate(osThread(ModeManager), NULL);
+  /* creation of ModeManager */
+  ModeManagerHandle = osThreadNew(ModeManagerTask, NULL, &ModeManager_attributes);
 
-  /* definition and creation of ProfileManager */
-  osThreadDef(ProfileManager, ProfileManagerTask, osPriorityIdle, 0, 128);
-  ProfileManagerHandle = osThreadCreate(osThread(ProfileManager), NULL);
+  /* creation of ProfileManager */
+  ProfileManagerHandle = osThreadNew(ProfileManagerTask, NULL, &ProfileManager_attributes);
 
-  /* definition and creation of FaultManager */
-  osThreadDef(FaultManager, FaultManagerTask, osPriorityIdle, 0, 128);
-  FaultManagerHandle = osThreadCreate(osThread(FaultManager), NULL);
+  /* creation of FaultManager */
+  FaultManagerHandle = osThreadNew(FaultManagerTask, NULL, &FaultManager_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
   osKernelStart();
@@ -313,6 +357,44 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -393,7 +475,7 @@ static void MX_GPIO_Init(void)
   * @retval None
   */
 /* USER CODE END Header_ControlManagerTask */
-void ControlManagerTask(void const * argument)
+void ControlManagerTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
@@ -411,7 +493,7 @@ void ControlManagerTask(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_ModeManagerTask */
-void ModeManagerTask(void const * argument)
+void ModeManagerTask(void *argument)
 {
   /* USER CODE BEGIN ModeManagerTask */
   /* Infinite loop */
@@ -429,7 +511,7 @@ void ModeManagerTask(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_ProfileManagerTask */
-void ProfileManagerTask(void const * argument)
+void ProfileManagerTask(void *argument)
 {
   /* USER CODE BEGIN ProfileManagerTask */
   /* Infinite loop */
@@ -447,7 +529,7 @@ void ProfileManagerTask(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_FaultManagerTask */
-void FaultManagerTask(void const * argument)
+void FaultManagerTask(void *argument)
 {
   /* USER CODE BEGIN FaultManagerTask */
   /* Infinite loop */
@@ -494,8 +576,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
