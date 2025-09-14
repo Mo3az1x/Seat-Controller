@@ -7,6 +7,7 @@
 static bool g_btn_up, g_btn_down, g_btn_save, g_btn_load;
 static uint8_t g_seat_height, g_seat_slide, g_seat_incline;
 static ECU_StateType g_ecu_state = ECU_OFF;
+static ECU_EventType g_ecu_event = EVENT_NONE;
 static bool g_fault_flag = false;
 
 /* ===========================================================
@@ -97,6 +98,17 @@ Std_ReturnType Rte_Write_ECU_State(ECU_StateType state)
 Std_ReturnType Rte_Read_ECU_State(ECU_StateType *state)
 {
     *state = g_ecu_state;
+    return E_OK;
+}
+
+Std_ReturnType Rte_Write_ECU_Event(ECU_EventType event)
+{
+    g_ecu_event = event;
+    return E_OK;
+}
+Std_ReturnType Rte_Read_ECU_Event(ECU_EventType *event)
+{
+    *event = g_ecu_event;
     return E_OK;
 }
 
