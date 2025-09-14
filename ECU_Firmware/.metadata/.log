@@ -1992,3 +1992,22 @@ java.lang.Exception: localhost:61234: Connection timed out.
 
 !ENTRY org.eclipse.cdt.core 1 0 2025-09-14 13:22:03.329
 !MESSAGE Indexed 'Seat_ECU_RTE' (17 sources, 78 headers) in 3.19 sec: 3,647 declarations; 13,278 references; 0 unresolved inclusions; 1 syntax errors; 2 unresolved names (0.012%)
+!SESSION 2025-09-14 13:45:18.852 -----------------------------------------------
+eclipse.buildId=Version 1.19.0
+java.version=21.0.3
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_US
+Framework arguments:  D:\GitHub\Seat-Controller\ECU_Firmware\Seat_ECU_RTE\.project
+Command-line arguments:  -os win32 -ws win32 -arch x86_64 D:\GitHub\Seat-Controller\ECU_Firmware\Seat_ECU_RTE\.project
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2025-09-14 13:45:33.309
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2025-09-14 13:45:33.310
+!MESSAGE Log4j2 initialized with config file D:\GitHub\Seat-Controller\ECU_Firmware\.metadata\.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2025-09-14 13:45:44.175
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY org.eclipse.cdt.core 1 0 2025-09-14 13:45:52.645
+!MESSAGE Indexed 'Seat_ECU_RTE' (35 sources, 142 headers) in 2.73 sec: 13,747 declarations; 77,864 references; 2 unresolved inclusions; 145 syntax errors; 189 unresolved names (0.21%)

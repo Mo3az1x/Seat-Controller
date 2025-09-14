@@ -5,7 +5,7 @@
 ../Core/Src/main.c:364:13:MX_SPI2_Init	8	static
 ../Core/Src/main.c:402:13:MX_USART1_UART_Init	8	static
 ../Core/Src/main.c:435:13:MX_GPIO_Init	40	static
-../Core/Src/main.c:498:6:ControlManagerTask	32	static
+../Core/Src/main.c:498:6:ControlManagerTask	24	static
 ../Core/Src/main.c:519:6:ModeManagerTask	16	static
 ../Core/Src/main.c:538:6:ProfileManagerTask	16	static
 ../Core/Src/main.c:556:6:FaultManagerTask	16	static

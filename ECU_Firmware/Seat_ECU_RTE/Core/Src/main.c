@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "../SeatController.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -414,10 +414,16 @@ static void MX_GPIO_Init(void)
 void ControlTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  uint8_t testData = 0xAB;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	HAL_I2C_Master_Transmit(&hi2c1,
+							I2C_SLAVE_ADDR,
+							&testData,
+							sizeof(testData),
+							HAL_MAX_DELAY);
+    osDelay(100);
   }
   /* USER CODE END 5 */
 }
@@ -509,6 +515,7 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+
   }
   /* USER CODE END Error_Handler_Debug */
 }

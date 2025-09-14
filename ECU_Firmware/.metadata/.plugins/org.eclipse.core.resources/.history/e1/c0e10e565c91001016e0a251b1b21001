@@ -1,0 +1,36 @@
+#include "rte_seatcontroller.h"
+#include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#define delay(ms) Sleep(ms)
+#else
+#include <unistd.h>
+#define delay(ms) usleep((ms)*1000)
+#endif
+
+extern void Runnable_BtnCtrl(void);
+extern void Runnable_SeatCtrl(void);
+extern void Runnable_ProfileManager(void);
+extern void Runnable_StateManager(void);
+extern void Runnable_DiagManager(void);
+extern void Runnable_NvmService(void);
+extern void Runnable_CommIf(void);
+
+int main(void)
+{
+    printf("=== Seat Controller ECU Simulation ===\n");
+
+    for (int i = 0; i < 20; i++) {
+        Runnable_BtnCtrl();
+        Runnable_SeatCtrl();
+        Runnable_ProfileManager();
+        Runnable_StateManager();
+        Runnable_DiagManager();
+        Runnable_NvmService();
+        Runnable_CommIf();
+
+        delay(200); // 200 ms cycle
+    }
+
+    return 0;
+}
