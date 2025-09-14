@@ -1,14 +1,23 @@
-#include "Rte.h"
+#include "rte_seatcontroller.h"
 #include <stdio.h>
 
-// Simulate button press (in real case from GPIO)
-void Runnable_BtnCtrl(void) {
+void Runnable_BtnCtrl(void)
+{
     static int tick = 0;
     tick++;
 
-    if (tick == 10) Rte_Write_BtnUp(true);
-    if (tick == 20) Rte_Write_BtnUp(false);
+    if (tick == 5)
+        Rte_Write_Btn_Up(true);
+    if (tick == 6)
+        Rte_Write_Btn_Up(false);
 
-    if (tick == 30) Rte_Write_BtnSave(true);
-    if (tick == 31) Rte_Write_BtnSave(false);
+    if (tick == 10)
+        Rte_Write_Btn_Save(true);
+    if (tick == 11)
+        Rte_Write_Btn_Save(false);
+
+    if (tick == 15)
+        Rte_Write_Btn_Load(true);
+    if (tick == 16)
+        Rte_Write_Btn_Load(false);
 }

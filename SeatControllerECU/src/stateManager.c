@@ -1,24 +1,23 @@
-#include "Rte.h"
+#include "rte_seatcontroller.h"
 #include <stdio.h>
 
-void Runnable_StateManager(void) {
-    ECU_StateType st = Rte_Read_ECUState();
+void Runnable_StateManager(void)
+{
+    ECU_StateType state;
+    Rte_Read_ECU_State(&state);
 
-    switch(st) {
-        case ECU_OFF:
-            Rte_Write_ECUState(ECU_IDLE);
-            break;
-        case ECU_IDLE:
-            if (Rte_Read_SeatPosition() > 0) 
-                Rte_Write_ECUState(ECU_LOCKED);
-            break;
-        case ECU_LOCKED:
-            if (Rte_Read_FaultFlag())
-                Rte_Write_ECUState(ECU_ERROR);
-            break;
-        default:
-            break;
+    switch (state)
+    {
+    case ECU_OFF:
+        Rte_Write_ECU_State(ECU_IDLE);
+        break;
+    case ECU_IDLE:
+        Rte_Write_ECU_State(ECU_LOCKED);
+        break;
+    default:
+        break;
     }
 
-    printf("[StateManager] ECU State=%d\n", Rte_Read_ECUState());
+    Rte_Read_ECU_State(&state);
+    printf("[StateManager] ECU State=%d\n", state);
 }

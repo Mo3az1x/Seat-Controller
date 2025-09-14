@@ -1,9 +1,8 @@
-#include "Rte.h"
+#include "rte_seatcontroller.h"
 #include <stdio.h>
 
-void Runnable_NvmService(void) {
-    // In real ECU: EEPROM Read/Write
-    // Here: just print when saving
-    if (Rte_Read_BtnSave())
-        printf("[NvmService] Writing to EEPROM...\n");
+void Runnable_NvmService(void)
+{
+    // In real system this would handle background EEPROM tasks
+    printf("[NvmService] Background EEPROM service running\n");
 }
