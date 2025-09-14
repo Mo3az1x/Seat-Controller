@@ -64,8 +64,8 @@ all: main-build
 main-build: Seat_ECU.elf secondary-outputs
 
 # Tool invocations
-Seat_ECU.elf Seat_ECU.map: $(OBJS) $(USER_OBJS) D:\Seat\ ECU\Seat-Controller\ECU_Firmware\Seat_ECU\STM32F103C8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Seat_ECU.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"D:\Seat ECU\Seat-Controller\ECU_Firmware\Seat_ECU\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Seat_ECU.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Seat_ECU.elf Seat_ECU.map: $(OBJS) $(USER_OBJS) D:\GitHub\Seat-Controller\ECU_Firmware\Seat_ECU\STM32F103C8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Seat_ECU.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"D:\GitHub\Seat-Controller\ECU_Firmware\Seat_ECU\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Seat_ECU.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

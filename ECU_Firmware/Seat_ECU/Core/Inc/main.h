@@ -57,6 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LED_Pin GPIO_PIN_13
+#define LED_GPIO_Port GPIOC
 #define Height_Sensor_Pin GPIO_PIN_0
 #define Height_Sensor_GPIO_Port GPIOA
 #define Slide_Sensor_Pin GPIO_PIN_1
@@ -75,6 +77,8 @@ void Error_Handler(void);
 #define Incline_Up_GPIO_Port GPIOA
 #define Incline_Down_Pin GPIO_PIN_0
 #define Incline_Down_GPIO_Port GPIOB
+#define SPI2_CS_Pin GPIO_PIN_12
+#define SPI2_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

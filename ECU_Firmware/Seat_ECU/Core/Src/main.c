@@ -61,7 +61,7 @@ osThreadId_t ModeManagerHandle;
 const osThreadAttr_t ModeManager_attributes = {
   .name = "ModeManager",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for ProfileManager */
 osThreadId_t ProfileManagerHandle;
@@ -97,7 +97,6 @@ osMessageQueueId_t FaultQueueHandle;
 const osMessageQueueAttr_t FaultQueue_attributes = {
   .name = "FaultQueue"
 };
-
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -157,6 +156,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
 
   /* USER CODE END 2 */
 
@@ -445,6 +445,19 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : LED_Pin */
+  GPIO_InitStruct.Pin = LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : Height_Up_Pin Height_Down_Pin Slide_Up_Pin Slide_Down_Pin
                            Incline_Up_Pin */
   GPIO_InitStruct.Pin = Height_Up_Pin|Height_Down_Pin|Slide_Up_Pin|Slide_Down_Pin
@@ -458,6 +471,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(Incline_Down_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SPI2_CS_Pin */
+  GPIO_InitStruct.Pin = SPI2_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(SPI2_CS_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -478,9 +498,12 @@ static void MX_GPIO_Init(void)
 void ControlManagerTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  uint8_t rxData[4] = { 0 };
+  uint8_t txData[4] = { "Hell" };
   /* Infinite loop */
   for(;;)
   {
+//	HAL_SPI_TransmitReceive(&hspi2, txData, rxData, sizeof(txData), HAL_MAX_DELAY);
     osDelay(1);
   }
   /* USER CODE END 5 */
@@ -499,7 +522,8 @@ void ModeManagerTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+//	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    osDelay(500);
   }
   /* USER CODE END ModeManagerTask */
 }
