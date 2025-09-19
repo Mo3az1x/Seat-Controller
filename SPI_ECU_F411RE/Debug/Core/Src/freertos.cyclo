@@ -1,0 +1,9 @@
+../Core/Src/freertos.c:101:6:MX_FREERTOS_Init	1
+../Core/Src/freertos.c:151:6:StartDefaultTask	1
+../Core/Src/freertos.c:164:5:__io_putchar	1
+../Core/Src/freertos.c:171:20:CS_Select	1
+../Core/Src/freertos.c:174:20:CS_Deselect	1
+../Core/Src/freertos.c:179:19:SaveProfileSPI	2
+../Core/Src/freertos.c:195:19:LoadProfileSPI	3
+../Core/Src/freertos.c:217:6:StartSaveTask	2
+../Core/Src/freertos.c:239:6:StartLoadTask	3
