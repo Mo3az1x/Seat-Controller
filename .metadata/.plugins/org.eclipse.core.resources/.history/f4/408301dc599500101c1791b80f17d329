@@ -1,0 +1,560 @@
+#include "FreeRTOS.h"
+#include "task.h"
+#include "cmsis_os.h"
+#include "main.h"
+#include "gpio.h"
+#include "usart.h"
+#include "adc.h"
+#include "spi.h"
+#include "i2c.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdint.h>
+
+#define I2C_SLAVE_ADD 0x50
+
+typedef enum
+{
+    MANUAL_MODE = 0,
+    AUTOMATIC_MODE,
+} Mode_Selection_t;
+volatile Mode_Selection_t DefaultMode = MANUAL_MODE;
+
+typedef enum {
+    STATE_OFF = 0,
+    STATE_IDLE,
+    STATE_LOCKED,
+    STATE_MOVING,
+	STATE_ERROR
+} SeatState_t;
+
+volatile SeatState_t CurrentState = STATE_OFF;
+
+
+#pragma pack(push,1)
+typedef struct
+{
+    uint16_t height;
+    uint16_t slide;
+    uint16_t incline;
+    uint8_t command;
+} SeatStatus_t;
+#pragma pack(pop)
+
+SeatStatus_t SeatST;
+
+volatile uint32_t Height_Variable  = 3;
+volatile uint32_t Slide_Variable   = 3;
+volatile uint32_t Incline_Variable = 70;
+
+osThreadId_t SwitchModeHandle;
+osThreadId_t AdcHeightHandle;
+osThreadId_t AdcSlideHandle;
+osThreadId_t AdcInclineHandle;
+osThreadId_t Buttons_Read_Manual_mode_high;
+osThreadId_t Buttons_Read_Manual_mode_Low;
+osThreadId_t UART_TaskHandle;
+osThreadId_t i2c_taskHandle;
+osThreadId_t i2c_seatStatus_handle;
+osThreadId_t fsmTaskHandle;
+
+osMessageQueueId_t UartQueueHandle;
+
+osMutexId_t i2cMutexHandle;
+
+const osThreadAttr_t switchmode_attributes = {
+        .name = "SwitchModeTask",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityHigh,
+};
+
+const osThreadAttr_t adcHeight_attributes = {
+        .name = "AdcHeightTask",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t adcSlide_attributes = {
+        .name = "AdcSlideTask",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t adcIncline_attributes = {
+        .name = "AdcInclineTask",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t Buttons_Attributes = {
+        .name = "ButtonsHighAttrib",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t Button_attrib_low = {
+        .name = "ButtonsLowAttrib",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t uartTask_attributes = {
+        .name = "UARTTask",
+        .stack_size = 128 * 4,
+        .priority = (osPriority_t) osPriorityNormal,
+};
+
+const osThreadAttr_t i2c_attributes = {
+        .name = "i2cdef",
+        .priority = (osPriority_t) osPriorityNormal,
+        .stack_size = 128 * 4
+};
+const osThreadAttr_t i2c_statehandle = {
+        .name = "i2cState",
+        .priority = (osPriority_t) osPriorityBelowNormal,
+        .stack_size =128 * 4
+};
+const osThreadAttr_t fsmTask_attributes = {
+    .name = "FSM_Task",
+    .stack_size = 128 * 4,
+    .priority = (osPriority_t) osPriorityAboveNormal,
+};
+
+
+void SwitchModeTask(void *argument);
+void AdcHeightTask(void *argument);
+void AdcSlideTask(void *argument);
+void AdcInclineTask(void *argument);
+void Buttons_ReadTask_highmode(void *argument);
+void Buttons_ReadTask_Lowmode(void *argument);
+void UART_Task(void *argument);
+void i2cTask(void *argument);
+void i2_handle_seatstatus(void * argument);
+void FSM_Task(void * argument);
+
+uint32_t Read_ADC_Channel(uint32_t channel);
+
+void MX_FREERTOS_Init(void)
+{
+    UartQueueHandle = osMessageQueueNew(10, 50, NULL);
+    const osMutexAttr_t i2cMutexAttr = { .name = "i2cMutex" };
+    i2cMutexHandle = osMutexNew(&i2cMutexAttr);
+
+    SwitchModeHandle               = osThreadNew(SwitchModeTask, NULL, &switchmode_attributes);
+    AdcHeightHandle                = osThreadNew(AdcHeightTask, NULL, &adcHeight_attributes);
+    AdcSlideHandle                 = osThreadNew(AdcSlideTask,  NULL, &adcSlide_attributes);
+    AdcInclineHandle               = osThreadNew(AdcInclineTask,NULL, &adcIncline_attributes);
+    Buttons_Read_Manual_mode_high  = osThreadNew(Buttons_ReadTask_highmode, NULL, &Buttons_Attributes);
+    Buttons_Read_Manual_mode_Low   = osThreadNew(Buttons_ReadTask_Lowmode, NULL, &Button_attrib_low);
+    UART_TaskHandle                = osThreadNew(UART_Task, NULL, &uartTask_attributes);
+    i2c_taskHandle                 = osThreadNew(i2cTask, NULL, &i2c_attributes);
+    i2c_seatStatus_handle          = osThreadNew(i2_handle_seatstatus, NULL, &i2c_statehandle);
+    fsmTaskHandle                  = osThreadNew(FSM_Task, NULL, &fsmTask_attributes);
+}
+
+void UART_Task(void *argument)
+{
+    char msg[50];
+
+    for(;;)
+    {
+        if (osMessageQueueGet(UartQueueHandle, msg, NULL, osWaitForever) == osOK)
+        {
+            msg[49] = '\0';
+            HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+        }
+    }
+}
+
+void i2_handle_seatstatus(void * argument)
+{
+    char uart_msg_ok[]  = "message sent \r\n";
+    char uart_msg_nok[] = "message not sent\r\n";
+    char errbuf[64];
+
+    uint8_t txBuffer[sizeof(SeatST)];
+
+    for(;;)
+    {
+        SeatST.height   = (uint16_t)Height_Variable;
+        SeatST.slide    = (uint16_t)Slide_Variable;
+        SeatST.incline  = (uint16_t)Incline_Variable;
+
+        if(DefaultMode == MANUAL_MODE)
+        {
+        	SeatST.command ='a';
+        }else if(DefaultMode == AUTOMATIC_MODE)
+        {
+        	SeatST.command = 'b';
+        }else
+        {
+
+        }
+
+        memcpy(txBuffer, &SeatST, sizeof(SeatST));
+
+
+        if (osMutexAcquire(i2cMutexHandle, 200) == osOK)
+        {
+            HAL_StatusTypeDef res = HAL_I2C_Master_Transmit(&hi2c1,
+                                                            (uint16_t)(I2C_SLAVE_ADD << 1),
+                                                            txBuffer,
+                                                            sizeof(txBuffer),
+                                                            200);
+
+            osMutexRelease(i2cMutexHandle);
+
+            if (res == HAL_OK)
+            {
+                osMessageQueuePut(UartQueueHandle, uart_msg_ok, 0, 10);
+            }
+            else
+            {
+                int len = snprintf(errbuf, sizeof(errbuf), "I2C not send =%d\r\n", (int)res);
+                if(len>0) osMessageQueuePut(UartQueueHandle, errbuf, 0, 10);
+                osMessageQueuePut(UartQueueHandle, uart_msg_nok, 0, 10);
+            }
+        }
+        else
+        {
+            osMessageQueuePut(UartQueueHandle, uart_msg_nok, 0, 10);
+        }
+        osDelay(1500);
+    }
+}
+
+void i2cTask(void *argument)
+{
+    uint8_t tx;
+    char uart_msg_ok[]  = "I2C mode not work \r\n";
+    char uart_msg_err[] = "I2C mode Fault\r\n";
+    char errbuf[64];
+
+    for(;;)
+    {
+        tx = (DefaultMode == AUTOMATIC_MODE) ? 'a' : 'b';
+
+        if (osMutexAcquire(i2cMutexHandle, 200) == osOK)
+        {
+            HAL_StatusTypeDef res = HAL_I2C_Master_Transmit(&hi2c1,
+                                                            (uint16_t)(I2C_SLAVE_ADD << 1),
+                                                            &tx,
+                                                            1,
+                                                            200);
+            osMutexRelease(i2cMutexHandle);
+
+            if (res == HAL_OK)
+            {
+                osMessageQueuePut(UartQueueHandle, uart_msg_ok, 0, 10);
+            }
+            else
+            {
+                int len = snprintf(errbuf, sizeof(errbuf), "I2C mode not work =%d\r\n", (int)res);
+                if(len>0) osMessageQueuePut(UartQueueHandle, errbuf, 0, 10);
+                osMessageQueuePut(UartQueueHandle, uart_msg_err, 0, 10);
+            }
+        }
+        else
+        {
+            osMessageQueuePut(UartQueueHandle, uart_msg_err, 0, 10);
+        }
+
+        osDelay(1000);
+    }
+}
+
+void SwitchModeTask(void *argument)
+{
+    char msg_auto[]   = "Switched to AUTO mode\r\n";
+    char msg_manual[] = "Switched to MANUAL mode\r\n";
+
+    for(;;)
+    {
+        if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET)
+        {
+            taskENTER_CRITICAL();
+            DefaultMode = (DefaultMode == MANUAL_MODE) ? AUTOMATIC_MODE : MANUAL_MODE;
+            taskEXIT_CRITICAL();
+
+            if(DefaultMode == AUTOMATIC_MODE)
+                osMessageQueuePut(UartQueueHandle, msg_auto, 0, 10);
+            else
+                osMessageQueuePut(UartQueueHandle, msg_manual, 0, 10);
+
+            while(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET) {
+                osDelay(10);
+            }
+        }
+        osDelay(50);
+    }
+}
+
+void AdcHeightTask(void *argument)
+{
+    char msg[50];
+
+    for(;;)
+    {
+        if(DefaultMode == AUTOMATIC_MODE)
+        {
+            uint32_t value = Read_ADC_Channel(ADC_CHANNEL_11);
+            int len = snprintf(msg, sizeof(msg), "Height_raw=%lu\r\n", value);
+            if (len > 0) {
+
+                osMessageQueuePut(UartQueueHandle, msg, 0, 10);
+            }
+        }
+        osDelay(200);
+    }
+}
+
+void AdcSlideTask(void *argument)
+{
+    char msg[50];
+
+    for(;;)
+    {
+        if(DefaultMode == AUTOMATIC_MODE)
+        {
+            uint32_t value = Read_ADC_Channel(ADC_CHANNEL_12);
+            int len = snprintf(msg, sizeof(msg), "Slide_raw=%lu\r\n", value);
+            if (len > 0) {
+                osMessageQueuePut(UartQueueHandle, msg, 0, 10);
+            }
+        }
+        osDelay(250);
+    }
+}
+
+void AdcInclineTask(void *argument)
+{
+    char msg[50];
+
+    for(;;)
+    {
+        if(DefaultMode == AUTOMATIC_MODE)
+        {
+            uint32_t value = Read_ADC_Channel(ADC_CHANNEL_13);
+            int len = snprintf(msg, sizeof(msg), "Incline_raw=%lu\r\n", value);
+            if (len > 0) {
+                osMessageQueuePut(UartQueueHandle, msg, 0, 10);
+            }
+        }
+        osDelay(300);
+    }
+}
+
+void Buttons_ReadTask_highmode(void * argument)
+{
+    char msg1[] = "Height Increasing\r\n";
+    char msg2[] = "Slider Increasing\r\n";
+    char incline_inc[] = "Incline Increase\r\n";
+    char incline_inc_max[] = "Incline Increase Max\r\n";
+    char msg3[] = "Maximum Height\r\n";
+    char msg4[] = "Maximum Slider\r\n";
+
+    for(;;)
+    {
+        if(DefaultMode == MANUAL_MODE)
+        {
+            if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Height_Variable >= 5)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, msg3, 0, 10);
+                }
+                else
+                {
+                    Height_Variable += 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, msg1, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET) osDelay(10);
+            }
+            else if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Slide_Variable >= 7)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, msg4, 0, 10);
+                }
+                else
+                {
+                    Slide_Variable += 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, msg2, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET) osDelay(10);
+            }
+            else if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_7) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Incline_Variable >= 105)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, incline_inc_max, 0, 10);
+                }
+                else
+                {
+                    Incline_Variable += 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, incline_inc, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_7) == GPIO_PIN_SET) osDelay(10);
+            }
+
+            osDelay(50);
+        }
+        else
+        {
+            osDelay(100);
+        }
+    }
+}
+
+void Buttons_ReadTask_Lowmode(void * argument)
+{
+    char Notification_height_dec[] = "Height Decrease\r\n";
+    char Notification_height_maxdec[] = "Height Decrease Max\r\n";
+
+    char Notification_slide_dec[] = "Slide Decrease\r\n";
+    char Notification_slide_maxdec[] = "Slide Decrease Max\r\n";
+
+    char Notification_incline_dec[] = "Incline Decrease\r\n";
+    char Notification_incline_maxdec[] = "Incline Decrease Max\r\n";
+
+    for(;;)
+    {
+        if (DefaultMode == MANUAL_MODE)
+        {
+            if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Height_Variable <= 2)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_height_maxdec, 0, 10);
+                }
+                else
+                {
+                    Height_Variable -= 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_height_dec, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_SET) osDelay(10);
+            }
+            else if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Slide_Variable <= 3)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_slide_maxdec, 0, 10);
+                }
+                else
+                {
+                    Slide_Variable -= 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_slide_dec, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5) == GPIO_PIN_SET) osDelay(10);
+            }
+            else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_SET)
+            {
+                taskENTER_CRITICAL();
+                if(Incline_Variable <= 67)
+                {
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_incline_maxdec, 0, 10);
+                }
+                else
+                {
+                    Incline_Variable -= 1;
+                    taskEXIT_CRITICAL();
+                    osMessageQueuePut(UartQueueHandle, Notification_incline_dec, 0, 10);
+                }
+                while(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_SET) osDelay(10);
+            }
+
+            osDelay(50);
+        }
+        else
+        {
+            osDelay(100);
+        }
+    }
+}
+
+uint32_t Read_ADC_Channel(uint32_t channel)
+{
+    ADC_ChannelConfTypeDef sConfig = {0};
+
+    sConfig.Channel = channel;
+    sConfig.Rank = 1;
+    sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+
+    HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+    uint32_t value = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    return value;
+}
+// ==== FSM Task ====
+void FSM_Task(void *argument)
+{
+//    char msg[50];
+
+    for(;;)
+    {
+    	switch(CurrentState)
+    	{
+    	    case STATE_OFF:
+    	        osMessageQueuePut(UartQueueHandle, "State=OFF\r\n", 0, 10);
+    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET) // Ignition
+    	            CurrentState = STATE_IDLE;
+    	        break;
+
+    	    case STATE_IDLE:
+    	        osMessageQueuePut(UartQueueHandle, "State=IDLE\r\n", 0, 10);
+    	        if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) // Start Moving
+    	            CurrentState = STATE_MOVING;
+    	        else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_SET) // Lock
+    	            CurrentState = STATE_LOCKED;
+    	        break;
+
+    	    case STATE_MOVING:
+    	        osMessageQueuePut(UartQueueHandle, "State=MOVING\r\n", 0, 10);
+    	        if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) // Stop
+    	            CurrentState = STATE_IDLE;
+    	        // مثال: لو الـ ADC رجع قيمة غريبة (أكبر من max)
+    	        else if (Read_ADC_Channel(ADC_CHANNEL_11) > 4000)
+    	            CurrentState = STATE_ERROR;
+    	        break;
+
+    	    case STATE_LOCKED:
+    	        osMessageQueuePut(UartQueueHandle, "State=LOCKED\r\n", 0, 10);
+    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_2) == GPIO_PIN_SET) // Unlock
+    	            CurrentState = STATE_IDLE;
+    	        break;
+
+    	    case STATE_ERROR:
+    	        osMessageQueuePut(UartQueueHandle, "⚠️ ERROR STATE\r\n", 0, 10);
+    	        // في حالة Error، ممكن:
+    	        // 1. توقف كل الحركات
+    	        // 2. تدي indication بالـ LED
+    	        // 3. تستنى Reset من user (زرار أو Ignition off/on)
+    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_8) == GPIO_PIN_SET) // Reset button
+    	            CurrentState = STATE_IDLE;
+    	        break;
+    	}
+
+
+        osDelay(300);
+    }
+}
