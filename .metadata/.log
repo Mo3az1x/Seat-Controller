@@ -12437,3 +12437,9 @@ This warning can be switched off on the Team > Git > Confirmations and Warnings 
 
 !ENTRY com.genuitec.eclipse.codetogether.ui 1 0 2025-09-21 00:04:21.812
 !MESSAGE No proxy data found for url: https://live.codetogether.io/ct-url
+
+!ENTRY com.microsoft.copilot.eclipse 1 0 2025-09-21 00:22:06.598
+!MESSAGE [Info] Document is null for editor: freertos.c
+
+!ENTRY com.microsoft.copilot.eclipse 1 0 2025-09-21 00:22:06.600
+!MESSAGE [Info] Completion handler is refreshed for the document: file:///C:/Users/omark/OneDrive/Desktop/Nucleo%202/Nucleo%202/Nucleo%202/Core/Src/freertos.c
