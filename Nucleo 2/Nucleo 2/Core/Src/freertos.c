@@ -30,8 +30,14 @@
 #define SPI_RES_READ_ALL      0x83
 #define SPI_RES_WRITE_ALL     0x84
 
-#define SPI_TIMEOUT           1000
+#define SPI_TIMEOUT           2000
 #define EEPROM_SIZE           1024
+
+#define PROFILE_ADDR   0x0100
+#define SaveBtn_GPIO_Port   GPIOA
+#define SaveBtn_Pin         GPIO_PIN_0
+#define LoadBtn_GPIO_Port   GPIOA
+#define LoadBtn_Pin         GPIO_PIN_1
 
 typedef enum
 {
@@ -109,6 +115,19 @@ typedef struct
 SeatStatus_t SeatST;
 Calibration_Data_t CalibData;
 
+typedef struct {
+    uint16_t height;
+    uint16_t slide;
+    uint16_t incline;
+    uint16_t checksum;
+} Profile_Data_t;
+Profile_Data_t ProfileData;
+
+uint16_t Calculate_ProfileChecksum(Profile_Data_t *p)
+{
+    return (p->height + p->slide + p->incline) & 0xFFFF;
+}
+
 volatile uint32_t Height_Variable  = 2;
 volatile uint32_t Slide_Variable   = 3;
 volatile uint32_t Incline_Variable = 67;
@@ -122,6 +141,13 @@ volatile uint32_t Incline_Measured = 0;
 volatile uint32_t Height_Physical  = 0;
 volatile uint32_t Slide_Physical   = 0;
 volatile uint32_t Incline_Physical = 0;
+
+uint8_t Ignition_Signal = 0;
+uint8_t Start_Signal    = 0;
+uint8_t Lock_Signal     = 0;
+uint8_t Error_Signal    = 0;
+uint8_t ResetError_Signal = 0;
+
 
 osThreadId_t SwitchModeHandle;
 osThreadId_t AdcHeightHandle;
@@ -431,6 +457,9 @@ HAL_StatusTypeDef SPI_EEPROM_ReadByte(uint16_t address, uint8_t *data)
 
         memcpy(tx_buffer, &cmd, sizeof(SPI_Command_t));
 
+        // Select EEPROM
+        HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET);
+
         // Send command and receive response
         if(HAL_SPI_TransmitReceive(&hspi2, tx_buffer, rx_buffer, sizeof(SPI_Command_t), SPI_TIMEOUT) == HAL_OK)
         {
@@ -445,6 +474,9 @@ HAL_StatusTypeDef SPI_EEPROM_ReadByte(uint16_t address, uint8_t *data)
                 result = HAL_OK;
             }
         }
+
+        // Deselect EEPROM
+        HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
 
         osMutexRelease(spiMutexHandle);
     }
@@ -473,6 +505,9 @@ HAL_StatusTypeDef SPI_EEPROM_WriteByte(uint16_t address, uint8_t data)
 
         memcpy(tx_buffer, &cmd, sizeof(SPI_Command_t));
 
+        // Select EEPROM
+        HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET);
+
         // Send command and receive response
         if(HAL_SPI_TransmitReceive(&hspi2, tx_buffer, rx_buffer, sizeof(SPI_Command_t), SPI_TIMEOUT) == HAL_OK)
         {
@@ -488,12 +523,14 @@ HAL_StatusTypeDef SPI_EEPROM_WriteByte(uint16_t address, uint8_t data)
             }
         }
 
+        // Deselect EEPROM
+        HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
+
         osMutexRelease(spiMutexHandle);
     }
 
     return result;
 }
-
 HAL_StatusTypeDef SPI_EEPROM_ReadAll(uint8_t *buffer, uint16_t size)
 {
     HAL_StatusTypeDef result = HAL_ERROR;
@@ -939,72 +976,130 @@ uint32_t Read_ADC_Channel(uint32_t channel)
 // ==== FSM Task ====
 void FSM_Task(void *argument)
 {
-//    char msg[50];
+    for (;;)
+    {
+        switch (CurrentState)
+        {
+        case STATE_OFF:
+            if (Ignition_Signal) CurrentState = STATE_IDLE;
+            break;
+
+        case STATE_IDLE:
+            if (Start_Signal) CurrentState = STATE_MOVING;
+            else if (Lock_Signal) CurrentState = STATE_LOCKED;
+            else if (Error_Signal) CurrentState = STATE_ERROR;
+            break;
+
+        case STATE_MOVING:
+            // Normal moving operations
+            if (Lock_Signal) CurrentState = STATE_LOCKED;
+            else if (Error_Signal) CurrentState = STATE_ERROR;
+            break;
+
+        case STATE_LOCKED:
+            if (Error_Signal) CurrentState = STATE_ERROR;
+            break;
+
+        case STATE_ERROR:
+            // Feedback with Red LED
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);
+            if (ResetError_Signal) {
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
+                CurrentState = STATE_IDLE;
+            }
+            break;
+        }
+
+        osDelay(100);
+    }
+}
+
+
+void Set_Actuator_Position(uint8_t actuator, uint16_t value)
+{
+    // TODO: Replace with actual actuator control
+    char msg[50];
+    snprintf(msg, sizeof(msg), "Actuator %d set to %u\r\n", actuator, value);
+    osMessageQueuePut(UartQueueHandle, msg, 0, 10);
+}
+
+/**
+  * @brief Task to manage saving and loading seat profiles
+  *        - Save button: store latest ADC readings (height/slide/incline) into EEPROM
+  *        - Load button: load profile back from EEPROM and apply it to actuators
+  *        - All feedback is sent to UART Queue (to be printed on bus sniffer / terminal)
+  */
+void ProfileManager_Task(void *argument)
+{
+    char msg[100];
+    uint8_t buffer[sizeof(Profile_Data_t)];
+
+    osMessageQueuePut(UartQueueHandle, "ProfileManager Task Started\r\n", 0, 10);
 
     for(;;)
     {
-    	switch(CurrentState)
-    	{
-    	    case STATE_OFF:
-    	        osMessageQueuePut(UartQueueHandle, "State=OFF\r\n", 0, 10);
-    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET) // Ignition
-    	        {
-    	            CurrentState = STATE_IDLE;
-    	            // Initialize SPI EEPROM communication when turning on
-    	            SPI_CurrentState = SPI_IDLE;
-    	        }
-    	        break;
+        // ===================== SAVE PROFILE =====================
+        // Check if Save button is pressed (active low assumed)
+        if(HAL_GPIO_ReadPin(SaveBtn_GPIO_Port, SaveBtn_Pin) == GPIO_PIN_RESET)
+        {
+            // 1. Read latest ADC values (current seat position)
+            ProfileData.height  = Read_ADC_Channel(11);   // ADC channel 0 -> Height sensor
+            ProfileData.slide   = Read_ADC_Channel(12);   // ADC channel 1 -> Slide sensor
+            ProfileData.incline = Read_ADC_Channel(13);   // ADC channel 2 -> Incline sensor
 
-    	    case STATE_IDLE:
-    	        osMessageQueuePut(UartQueueHandle, "State=IDLE\r\n", 0, 10);
-    	        if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) // Start Moving
-    	            CurrentState = STATE_MOVING;
-    	        else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_SET) // Lock
-    	            CurrentState = STATE_LOCKED;
-    	        break;
+            // 2. Calculate checksum for data integrity
+            ProfileData.checksum = Calculate_ProfileChecksum(&ProfileData);
 
-    	    case STATE_MOVING:
-    	        osMessageQueuePut(UartQueueHandle, "State=MOVING\r\n", 0, 10);
-    	        if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) // Stop
-    	            CurrentState = STATE_IDLE;
-    	        // Check for error conditions using physical values
-    	        else if (Height_Physical > 53 || Slide_Physical > 75 || Incline_Physical > 10553)
-    	        {
-    	            CurrentState = STATE_ERROR;
-    	            SPI_CurrentState = SPI_ERROR;
-    	        }
-    	        break;
+            // 3. Copy structure into byte buffer
+            memcpy(buffer, &ProfileData, sizeof(Profile_Data_t));
 
-    	    case STATE_LOCKED:
-    	        osMessageQueuePut(UartQueueHandle, "State=LOCKED\r\n", 0, 10);
-    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_2) == GPIO_PIN_SET) // Unlock
-    	            CurrentState = STATE_IDLE;
-    	        break;
+            // 4. Save data to EEPROM (currently writes to address 0x0000)
+            if(SPI_EEPROM_WriteAll(buffer, sizeof(Profile_Data_t)) == HAL_OK)
+            {
+                osMessageQueuePut(UartQueueHandle, "Profile Saved to EEPROM\r\n", 0, 10);
+            }
+            else
+            {
+                osMessageQueuePut(UartQueueHandle, "Failed to Save Profile\r\n", 0, 10);
+            }
 
-    	    case STATE_ERROR:
-    	        osMessageQueuePut(UartQueueHandle, "⚠ ERROR STATE - SPI/Sensor Error\r\n", 0, 10);
-    	        // In error state:
-    	        // 1. Stop all movements
-    	        // 2. Try to save current state to EEPROM
-    	        // 3. Wait for reset
-    	        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_8) == GPIO_PIN_SET) // Reset button
-    	        {
-    	            CurrentState = STATE_IDLE;
-    	            SPI_CurrentState = SPI_IDLE;
+            osDelay(500); // Debounce delay (to avoid multiple triggers)
+        }
 
-    	            // Try to save calibration data on reset
-    	            uint8_t calib_buffer[sizeof(Calibration_Data_t)];
-    	            CalibData.checksum = Calculate_Checksum(&CalibData);
-    	            memcpy(calib_buffer, &CalibData, sizeof(Calibration_Data_t));
+        // ===================== LOAD PROFILE =====================
+        // Check if Load button is pressed (active low assumed)
+        if(HAL_GPIO_ReadPin(LoadBtn_GPIO_Port, LoadBtn_Pin) == GPIO_PIN_RESET)
+        {
+            // 1. Read profile back from EEPROM
+            if(SPI_EEPROM_ReadAll(buffer, sizeof(Profile_Data_t)) == HAL_OK)
+            {
+                // Copy data into structure
+                memcpy(&ProfileData, buffer, sizeof(Profile_Data_t));
 
-    	            if(SPI_EEPROM_WriteAll(calib_buffer, sizeof(Calibration_Data_t)) == HAL_OK)
-    	            {
-    	                osMessageQueuePut(UartQueueHandle, "Calibration saved to EEPROM\r\n", 0, 10);
-    	            }
-    	        }
-    	        break;
-    	}
+                // 2. Validate checksum before using data
+                if(ProfileData.checksum == Calculate_ProfileChecksum(&ProfileData))
+                {
+                    // 3. Apply loaded values to actuators
+                    Set_Actuator_Position(0, ProfileData.height);   // Move Height actuator
+                    Set_Actuator_Position(1, ProfileData.slide);    // Move Slide actuator
+                    Set_Actuator_Position(2, ProfileData.incline);  // Move Incline actuator
 
-        osDelay(300);
+                    osMessageQueuePut(UartQueueHandle, "Profile Loaded Successfully\r\n", 0, 10);
+                }
+                else
+                {
+                    osMessageQueuePut(UartQueueHandle, "Profile Checksum Invalid\r\n", 0, 10);
+                }
+            }
+            else
+            {
+                osMessageQueuePut(UartQueueHandle, "Failed to Load Profile\r\n", 0, 10);
+            }
+
+            osDelay(500); // Debounce delay
+        }
+
+        // ===================== TASK LOOP DELAY =====================
+        osDelay(50); // Run task every 50ms
     }
 }
