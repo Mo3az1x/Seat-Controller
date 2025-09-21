@@ -1,7 +1,12 @@
 package eeprom;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.*;
 import java.util.List;
 import com.fazecast.jSerialComm.SerialPort;
 
@@ -10,6 +15,14 @@ public class EepromGUI extends JFrame {
     private JTextField baudField;
     private JTextArea traceArea;
     private SerialPort serialPort;
+    private JLabel connectionStatus;
+    private JButton connectBtn;
+    private JButton disconnectBtn;
+    private boolean isConnected = false;
+    private boolean isNewOperation = true;
+    private byte[] lastReadData = null;
+    private String lastOperation = "";
+    private boolean saveDialogShown = false;
 
     // ==== Frame constants ====
     private static final byte HEADER = 0x7E;
@@ -45,18 +58,29 @@ public class EepromGUI extends JFrame {
 
         settingsPanel.add(new JLabel("Port:"));
         portCombo = new JComboBox<>();
-        portCombo.setPreferredSize(new Dimension(200, 25));
+        portCombo.setPreferredSize(new Dimension(200, 30));
         List<String> ports = PortUtil.getAvailablePortNames();
         for (String p : ports) portCombo.addItem(p);
         settingsPanel.add(portCombo);
 
         settingsPanel.add(new JLabel("Baud:"));
         baudField = new JTextField("9600");
-        baudField.setPreferredSize(new Dimension(100, 25));
+        baudField.setPreferredSize(new Dimension(100, 30));
         settingsPanel.add(baudField);
 
-        JButton connectBtn = new JButton("Connect");
+        connectBtn = createStyledButton("Connect");
+        disconnectBtn = createStyledButton("Disconnect");
+        disconnectBtn.setEnabled(false);
+        
+        // Connection status indicator
+        connectionStatus = new JLabel("●");
+        connectionStatus.setFont(new Font("Arial", Font.BOLD, 16));
+        connectionStatus.setForeground(Color.RED);
+        connectionStatus.setToolTipText("Disconnected");
+        
         settingsPanel.add(connectBtn);
+        settingsPanel.add(disconnectBtn);
+        settingsPanel.add(connectionStatus);
         add(settingsPanel, BorderLayout.NORTH);
 
         // ===== CENTER: Tabs =====
@@ -65,10 +89,10 @@ public class EepromGUI extends JFrame {
         // Tab 1: EEPROM Ops
         JPanel eepromPanel = new JPanel(new GridLayout(2, 2, 10, 10));
         eepromPanel.setBorder(BorderFactory.createTitledBorder("EEPROM Operations"));
-        JButton readByteBtn = new JButton("Read Byte");
-        JButton writeByteBtn = new JButton("Write Byte");
-        JButton readAllBtn = new JButton("Read All");
-        JButton writeAllBtn = new JButton("Write All");
+        JButton readByteBtn = createStyledButton("Read Byte");
+        JButton writeByteBtn = createStyledButton("Write Byte");
+        JButton readAllBtn = createStyledButton("Read All");
+        JButton writeAllBtn = createStyledButton("Write All");
         eepromPanel.add(readByteBtn); eepromPanel.add(writeByteBtn);
         eepromPanel.add(readAllBtn); eepromPanel.add(writeAllBtn);
         tabbedPane.add("EEPROM", eepromPanel);
@@ -76,20 +100,20 @@ public class EepromGUI extends JFrame {
         // Tab 2: Utility
         JPanel utilPanel = new JPanel(new GridLayout(1, 2, 10, 10));
         utilPanel.setBorder(BorderFactory.createTitledBorder("Utility"));
-        JButton clearBtn = new JButton("Clear");
-        JButton verifyBtn = new JButton("Verify");
+        JButton clearBtn = createStyledButton("Clear");
+        JButton verifyBtn = createStyledButton("Verify");
         utilPanel.add(clearBtn); utilPanel.add(verifyBtn);
         tabbedPane.add("Utility", utilPanel);
 
         // Tab 3: Memory Service
         JPanel memPanel = new JPanel(new GridLayout(3, 2, 10, 10));
         memPanel.setBorder(BorderFactory.createTitledBorder("Memory Service"));
-        JButton readStartupBtn = new JButton("Read Startup");
-        JButton writeStartupBtn = new JButton("Write Startup");
-        JButton readCalibBtn = new JButton("Read Calibration");
-        JButton writeCalibBtn = new JButton("Write Calibration");
-        JButton readDiagBtn = new JButton("Read Diagnostic");
-        JButton writeDiagBtn = new JButton("Write Diagnostic");
+        JButton readStartupBtn = createStyledButton("Read Startup");
+        JButton writeStartupBtn = createStyledButton("Write Startup");
+        JButton readCalibBtn = createStyledButton("Read Calibration");
+        JButton writeCalibBtn = createStyledButton("Write Calibration");
+        JButton readDiagBtn = createStyledButton("Read Diagnostic");
+        JButton writeDiagBtn = createStyledButton("Write Diagnostic");
         memPanel.add(readStartupBtn); memPanel.add(writeStartupBtn);
         memPanel.add(readCalibBtn);  memPanel.add(writeCalibBtn);
         memPanel.add(readDiagBtn);   memPanel.add(writeDiagBtn);
@@ -109,6 +133,7 @@ public class EepromGUI extends JFrame {
 
         // ===== Button Actions =====
         connectBtn.addActionListener(e -> connectToArduino());
+        disconnectBtn.addActionListener(e -> disconnectFromArduino());
 
         // EEPROM Ops
         readByteBtn.addActionListener(e -> {
@@ -141,16 +166,25 @@ public class EepromGUI extends JFrame {
         });
 
         writeAllBtn.addActionListener(e -> {
-            String lenStr = JOptionPane.showInputDialog(this, "Enter number of bytes:");
-            if (lenStr != null) {
-                int len = Integer.parseInt(lenStr);
-                byte[] data = new byte[len];
-                for (int i = 0; i < len; i++) {
-                    String valStr = JOptionPane.showInputDialog(this, "Byte[" + i + "]:");
-                    data[i] = (byte) Integer.parseInt(valStr);
+            // Show file chooser dialog
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Load EEPROM Data");
+            fileChooser.setFileFilter(new FileNameExtensionFilter("Binary Files (*.bin)", "bin"));
+            
+            if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selectedFile = fileChooser.getSelectedFile();
+                byte[] data = loadDataFromFile(selectedFile);
+                
+                if (data != null) {
+                    traceArea.append("Loaded " + data.length + " bytes from: " + selectedFile.getName() + "\n");
+                    byte[] frame = buildWriteAllFrame(data);
+                    sendFrame("WRITE_ALL | Size=" + data.length + " | File=" + selectedFile.getName(), frame);
+                } else {
+                    JOptionPane.showMessageDialog(this, 
+                        "Error loading file. Please try again.", 
+                        "Load Error", 
+                        JOptionPane.ERROR_MESSAGE);
                 }
-                byte[] frame = buildWriteAllFrame(data);
-                sendFrame("WRITE_ALL | Size=" + len, frame);
             }
         });
 
@@ -231,17 +265,43 @@ public class EepromGUI extends JFrame {
         serialPort.setBaudRate(baudRate);
 
         if (serialPort.openPort()) {
+            isConnected = true;
+            connectionStatus.setForeground(Color.GREEN);
+            connectionStatus.setToolTipText("Connected to " + portName);
+            connectBtn.setEnabled(false);
+            disconnectBtn.setEnabled(true);
             traceArea.append("Connected to " + portName + "\n");
         } else {
+            isConnected = false;
+            connectionStatus.setForeground(Color.RED);
+            connectionStatus.setToolTipText("Connection failed");
             traceArea.append("Failed to connect to " + portName + "\n");
         }
+    }
+    
+    private void disconnectFromArduino() {
+        if (serialPort != null && serialPort.isOpen()) {
+            serialPort.closePort();
+        }
+        isConnected = false;
+        connectionStatus.setForeground(Color.RED);
+        connectionStatus.setToolTipText("Disconnected");
+        connectBtn.setEnabled(true);
+        disconnectBtn.setEnabled(false);
+        traceArea.append("Disconnected from serial port\n");
     }
 
     private void sendFrame(String op, byte[] frame) {
         traceArea.append("Operation: " + op + "\n");
         traceArea.append("Frame: " + toHex(frame) + "\n\n");
-        if (serialPort != null && serialPort.isOpen()) {
+        isNewOperation = true; // Reset flag for new operation
+        lastOperation = op; // Store operation type for file handling
+        lastReadData = null; // Clear previous data
+        saveDialogShown = false; // Reset save dialog flag
+        if (isConnected && serialPort != null && serialPort.isOpen()) {
             serialPort.writeBytes(frame, frame.length);
+        } else {
+            traceArea.append("Warning: Not connected to serial port. Operation not sent.\n\n");
         }
     }
 
@@ -251,16 +311,159 @@ public class EepromGUI extends JFrame {
             if (serialPort != null && serialPort.isOpen()) {
                 int bytesRead = serialPort.readBytes(buffer, buffer.length);
                 if (bytesRead > 0) {
-                    StringBuilder response = new StringBuilder();
-                    for (int i = 0; i < bytesRead; i++) {
-                        response.append(String.format("%02X ", buffer[i]));
+                    // Print "Received:" only once per operation
+                    if (isNewOperation) {
+                        traceArea.append("Received:\n");
+                        isNewOperation = false;
                     }
-                    traceArea.append("Received: " + response.toString() + "\n");
+                    
+                    // Store received data for Read All operations
+                    if (lastOperation.contains("READ_ALL")) {
+                        storeReceivedData(buffer, bytesRead);
+                    }
+                    
+                    // Parse mixed data - separate binary frames from ASCII text
+                    parseMixedData(buffer, bytesRead);
+                    
+                    // Show save dialog for Read All operations after data is received
+                    if (lastOperation.contains("READ_ALL") && lastReadData != null && !saveDialogShown) {
+                        saveDialogShown = true;
+                        SwingUtilities.invokeLater(this::showSaveDialog);
+                    }
                 }
             }
             try { Thread.sleep(100); } catch (Exception ex) {}
         }
     }
+    
+    private void parseMixedData(byte[] buffer, int length) {
+        // Check if this looks like a complete ASCII message (startup text)
+        if (isLikelyAsciiMessage(buffer, length)) {
+            String asciiText = new String(buffer, 0, length);
+            traceArea.append(asciiText);
+            return;
+        }
+        
+        // Otherwise, display as hex data
+        String hexData = formatHexData(buffer, 0, length);
+        traceArea.append(hexData + "\n");
+    }
+    
+    private boolean isLikelyAsciiMessage(byte[] buffer, int length) {
+        // Check for common ASCII patterns that indicate startup messages
+        String text = new String(buffer, 0, length);
+        
+        // Look for startup message patterns
+        if (text.contains("EEPROM") || text.contains("Emulator") || 
+            text.contains("Started") || text.contains("===") ||
+            text.contains("UART") || text.contains("SPI")) {
+            return true;
+        }
+        
+        // Check if it's mostly printable ASCII with reasonable length
+        int printableCount = 0;
+        for (int i = 0; i < length; i++) {
+            byte b = buffer[i];
+            if (b >= 32 && b <= 126) { // Printable ASCII range
+                printableCount++;
+            }
+        }
+        
+        // Only consider it ASCII if it's mostly printable AND has reasonable length
+        // AND doesn't look like binary data (no frame headers/tails)
+        boolean hasFrameMarkers = false;
+        for (int i = 0; i < length; i++) {
+            if (buffer[i] == HEADER || buffer[i] == TAIL) {
+                hasFrameMarkers = true;
+                break;
+            }
+        }
+        
+        return !hasFrameMarkers && 
+               (double) printableCount / length > 0.8 && 
+               length > 10; // Reasonable length for ASCII message
+    }
+    
+    private void storeReceivedData(byte[] buffer, int bytesRead) {
+        if (lastReadData == null) {
+            lastReadData = new byte[bytesRead];
+            System.arraycopy(buffer, 0, lastReadData, 0, bytesRead);
+        } else {
+            // Append to existing data
+            byte[] newData = new byte[lastReadData.length + bytesRead];
+            System.arraycopy(lastReadData, 0, newData, 0, lastReadData.length);
+            System.arraycopy(buffer, 0, newData, lastReadData.length, bytesRead);
+            lastReadData = newData;
+        }
+    }
+    
+    private void showSaveDialog() {
+        int result = JOptionPane.showConfirmDialog(this, 
+            "Read All operation completed. Do you want to save the data to a file?", 
+            "Save EEPROM Data", 
+            JOptionPane.YES_NO_OPTION);
+            
+        if (result == JOptionPane.YES_OPTION) {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Save EEPROM Data");
+            fileChooser.setFileFilter(new FileNameExtensionFilter("Binary Files (*.bin)", "bin"));
+            fileChooser.setSelectedFile(new File("eeprom_data.bin"));
+            
+            if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selectedFile = fileChooser.getSelectedFile();
+                if (saveDataToFile(selectedFile, lastReadData)) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Data saved successfully to: " + selectedFile.getName(), 
+                        "Save Complete", 
+                        JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, 
+                        "Error saving file. Please try again.", 
+                        "Save Error", 
+                        JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+    }
+    
+    private boolean saveDataToFile(File file, byte[] data) {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            fos.write(data);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    private byte[] loadDataFromFile(File file) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] data = new byte[(int) file.length()];
+            fis.read(data);
+            return data;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
+    
+    private String formatHexData(byte[] data, int start, int length) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i < start + length; i++) {
+            if ((i - start) % 16 == 0 && (i - start) > 0) {
+                sb.append("\n");
+            }
+            sb.append(String.format("%02X ", data[i] & 0xFF));
+            
+            // Add extra space after every 4 bytes for better readability
+            if ((i - start + 1) % 4 == 0 && (i - start + 1) % 16 != 0) {
+                sb.append(" ");
+            }
+        }
+        return sb.toString();
+    }
+    
 
     // ==== Frame Builders ====
     private byte[] buildFrame(byte cmd, int p1, int p2) {
@@ -326,6 +529,42 @@ public class EepromGUI extends JFrame {
         StringBuilder sb = new StringBuilder();
         for (byte b : arr) sb.append(String.format("%02X ", b));
         return sb.toString().trim();
+    }
+    
+    
+    private JButton createStyledButton(String text) {
+        JButton button = new JButton(text);
+        button.setPreferredSize(new Dimension(120, 35));
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setBackground(new Color(240, 240, 240));
+        button.setForeground(Color.BLACK);
+        button.setFont(new Font("Arial", Font.PLAIN, 12));
+        
+        // Add rounded border
+        button.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            new EmptyBorder(8, 12, 8, 12)
+        ));
+        
+        // Add hover effect
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (button.isEnabled()) {
+                    button.setBackground(new Color(220, 220, 220));
+                }
+            }
+            
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (button.isEnabled()) {
+                    button.setBackground(new Color(240, 240, 240));
+                }
+            }
+        });
+        
+        return button;
     }
 
     public static void main(String[] args) {
