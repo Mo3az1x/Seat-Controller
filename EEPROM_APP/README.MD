@@ -23,6 +23,8 @@ This project provides a complete solution for EEPROM memory management with:
 └─────────────────────┘                └─────────────────────┘
 
 
+
+
 ### Memory Layout
 
 | Region | Address Range | Purpose | Description |
@@ -72,10 +74,12 @@ EEPROM_APP/
 
 #### Frame Format (UART)
 
+
 ┌──────┬────────────┬─────────┬──────┬──────┐
 │ 0x7E │ LENGTH(4B) │ CMD(1B) │ DATA │ 0x7F │
 │Header│   32-bit   │ Command │      │ Tail │
 └──────┴────────────┴─────────┴──────┴──────┘
+
 
 
 
