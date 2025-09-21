@@ -72,9 +72,11 @@ EEPROM_APP/
 
 #### Frame Format (UART)
 
-
+┌──────┬────────────┬─────────┬──────┬──────┐
 │ 0x7E │ LENGTH(4B) │ CMD(1B) │ DATA │ 0x7F │
 │Header│   32-bit   │ Command │      │ Tail │
+└──────┴────────────┴─────────┴──────┴──────┘
+
 
 
 ### Java GUI Application
