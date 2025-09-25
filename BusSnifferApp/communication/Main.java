@@ -148,19 +148,10 @@ public class Main {
         System.out.println("  fault <1|2>       - Trigger fault condition");
         System.out.println("  gearbox <g> <t>   - Send gearbox status (gear, torque)");
         System.out.println();
-        System.out.println("EEPROM Commands:");
-        System.out.println("  read <addr>       - Read byte from EEPROM");
-        System.out.println("  write <addr> <val>- Write byte to EEPROM");
-        System.out.println("  readall [size]    - Read all EEPROM (default 256 bytes)");
-        System.out.println("  writeall <file>   - Write file to EEPROM");
-        System.out.println("  dump <start> <len>- Hex dump EEPROM range");
-        System.out.println();
+        // EEPROM commands removed
         System.out.println("Profile Commands:");
-        System.out.println("  saveprofile <id>  - Save current profile to EEPROM");
-        System.out.println("  loadprofile <id>  - Load profile from EEPROM");
-        System.out.println("Profiles:");
-        System.out.println("  saveprofile <id>  - Save current profile to EEPROM");
-        System.out.println("  loadprofile <id>  - Load profile from EEPROM");
+        System.out.println("  saveprofile <id>  - Save current profile to slot id");
+        System.out.println("  loadprofile <id>  - Load profile from slot id");
         System.out.println();
         System.out.println("Utility Commands:");
         System.out.println("  monitor           - Start continuous monitoring");
@@ -209,21 +200,7 @@ public class Main {
             case "gearbox":
                 sendGearboxStatus(parts);
                 break;
-            case "read":
-                readEEPROM(parts);
-                break;
-            case "write":
-                writeEEPROM(parts);
-                break;
-            case "readall":
-                readAllEEPROM(parts.length > 1 ? parts[1] : "256");
-                break;
-            case "writeall":
-                writeAllEEPROM(parts.length > 1 ? parts[1] : null);
-                break;
-            case "dump":
-                dumpEEPROM(parts);
-                break;
+            // EEPROM command cases removed
             case "saveprofile":
                 saveProfile(parts);
                 break;
@@ -489,133 +466,7 @@ public class Main {
         }
     }
     
-    private static void readEEPROM(String[] parts) {
-        if (!checkConnection()) return;
-        
-        if (parts.length < 2) {
-            System.err.println("Usage: read <address>");
-            System.err.println("Example: read 0x10 or read 16");
-            return;
-        }
-        
-        try {
-            int address = parseAddress(parts[1]);
-            sniffer.sendReadByte(address);
-            System.out.printf("✓ Reading EEPROM address 0x%02X\n", address);
-            
-        } catch (NumberFormatException e) {
-            System.err.println("Invalid address: " + parts[1]);
-        }
-    }
-    
-    private static void writeEEPROM(String[] parts) {
-        if (!checkConnection()) return;
-        
-        if (parts.length < 3) {
-            System.err.println("Usage: write <address> <value>");
-            System.err.println("Example: write 0x10 0xFF or write 16 255");
-            return;
-        }
-        
-        try {
-            int address = parseAddress(parts[1]);
-            int value = parseAddress(parts[2]); // Can parse hex or decimal
-            
-            if (value < 0 || value > 255) {
-                System.err.println("Value must be between 0 and 255");
-                return;
-            }
-            
-            sniffer.sendWriteByte(address, value);
-            System.out.printf("✓ Writing 0x%02X to EEPROM address 0x%02X\n", value, address);
-            
-        } catch (NumberFormatException e) {
-            System.err.println("Invalid address or value provided");
-        }
-    }
-    
-    private static void readAllEEPROM(String sizeStr) {
-        if (!checkConnection()) return;
-        
-        try {
-            int size = Integer.parseInt(sizeStr);
-            if (size <= 0 || size > 65536) {
-                System.err.println("Size must be between 1 and 65536 bytes");
-                return;
-            }
-            
-            sniffer.sendReadAll(size);
-            System.out.printf("✓ Reading all EEPROM (%d bytes)\n", size);
-            
-        } catch (NumberFormatException e) {
-            System.err.println("Invalid size: " + sizeStr);
-        }
-    }
-    
-    private static void writeAllEEPROM(String filename) {
-        if (!checkConnection()) return;
-        
-        if (filename == null) {
-            System.err.println("Usage: writeall <filename>");
-            System.err.println("Example: writeall calibration.bin");
-            return;
-        }
-        
-        try {
-            // For demo purposes, create a test pattern
-            byte[] data = new byte[256];
-            for (int i = 0; i < data.length; i++) {
-                data[i] = (byte)(i & 0xFF);
-            }
-            
-            sniffer.sendWriteAll(data);
-            System.out.printf("✓ Writing %d bytes to EEPROM (test pattern)\n", data.length);
-            System.out.println("Note: File loading not implemented in demo version");
-            
-        } catch (Exception e) {
-            System.err.println("Error writing EEPROM: " + e.getMessage());
-        }
-    }
-    
-    private static void dumpEEPROM(String[] parts) {
-        if (parts.length < 3) {
-            System.err.println("Usage: dump <start_addr> <length>");
-            System.err.println("Example: dump 0x00 16");
-            return;
-        }
-        
-        try {
-            int startAddr = parseAddress(parts[1]);
-            int length = Integer.parseInt(parts[2]);
-            
-            System.out.printf("EEPROM Hex Dump (0x%02X - 0x%02X):\n", startAddr, startAddr + length - 1);
-            
-            // For demo, show simulated data
-            for (int i = 0; i < length; i += 16) {
-                System.out.printf("%04X: ", startAddr + i);
-                
-                // Hex values
-                for (int j = 0; j < 16 && (i + j) < length; j++) {
-                    int addr = startAddr + i + j;
-                    System.out.printf("%02X ", addr & 0xFF); // Simulated data
-                }
-                
-                // ASCII representation
-                System.out.print(" |");
-                for (int j = 0; j < 16 && (i + j) < length; j++) {
-                    int value = (startAddr + i + j) & 0xFF;
-                    char c = (value >= 32 && value <= 126) ? (char)value : '.';
-                    System.out.print(c);
-                }
-                System.out.println("|");
-            }
-            
-            System.out.println("Note: This is simulated data. Use 'readall' for actual EEPROM content.");
-            
-        } catch (NumberFormatException e) {
-            System.err.println("Invalid address or length provided");
-        }
-    }
+    // EEPROM helpers and commands removed
     
     private static void startMonitoring() {
         if (!checkConnection()) return;
@@ -860,14 +711,7 @@ public class Main {
             System.out.printf("[%s] SEAT_MSG: %s = %s%n", timestamp, messageType, data);
         }
         
-        @Override
-        public void onEEPROMResponse(EEPROMOperation operation, int address, byte[] data, boolean success) {
-            String timestamp = timeFormat.format(new Date());
-            String result = success ? "SUCCESS" : "FAILED";
-            String dataStr = (data != null && data.length > 0) ? bytesToHex(data) : "N/A";
-            System.out.printf("[%s] EEPROM_%s: addr=0x%02X data=%s result=%s%n", 
-                timestamp, operation, address, dataStr, result);
-        }
+        // onEEPROMResponse removed
         
         @Override
         public void onFaultStatus(int faultNumber, boolean active, long timestamp) {

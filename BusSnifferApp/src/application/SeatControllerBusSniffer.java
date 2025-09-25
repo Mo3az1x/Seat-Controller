@@ -35,19 +35,16 @@ public class SeatControllerBusSniffer extends JFrame {
     private JLabel fault1StatusLabel, fault2StatusLabel;
     private JButton triggerFault1Btn, triggerFault2Btn;
     
-    // EEPROM operations panel
-    private JPanel eepromPanel;
-    private JTextField eepromAddressField, eepromValueField;
-    private JButton readByteBtn, writeByteBtn, readAllBtn, writeAllBtn;
+    // (EEPROM operations panel removed)
     
     // Profiles panel
     private JPanel profilesPanel;
     private JComboBox<String> profileSelect;
-    private JTextField profHeightField, profSlideField, profInclineField, profAddressField;
+    private JTextField profHeightField, profSlideField, profInclineField;
     private JButton saveProfileBtn, loadProfileBtn;
     
     private JTextArea traceArea;
-    private SnifferManager sniffer;
+    private SeatControllerSnifferManager sniffer;
     private JToggleButton connectBtn;
     
     // Message timing
@@ -116,21 +113,7 @@ public class SeatControllerBusSniffer extends JFrame {
         triggerFault2Btn = new JButton("Trigger Fault 2");
         triggerFault2Btn.addActionListener(e -> triggerFault(2));
         
-        // === EEPROM Panel Components ===
-        eepromPanel = new JPanel(new GridLayout(3, 4, 5, 5));
-        eepromPanel.setBorder(BorderFactory.createTitledBorder("EEPROM Operations"));
-        
-        eepromAddressField = new JTextField("0x00");
-        eepromValueField = new JTextField("0xFF");
-        
-        readByteBtn = new JButton("Read Byte");
-        readByteBtn.addActionListener(e -> performEEPROMOperation("ReadByte"));
-        writeByteBtn = new JButton("Write Byte");
-        writeByteBtn.addActionListener(e -> performEEPROMOperation("WriteByte"));
-        readAllBtn = new JButton("Read All");
-        readAllBtn.addActionListener(e -> performEEPROMOperation("ReadAll"));
-        writeAllBtn = new JButton("Write All");
-        writeAllBtn.addActionListener(e -> performEEPROMOperation("WriteAll"));
+        // (EEPROM panel removed)
         
         // === Other Components ===
         frameTypeLabel = new JLabel("Frame: -");
@@ -176,7 +159,7 @@ public class SeatControllerBusSniffer extends JFrame {
         // Setup seat control panel layout
         setupSeatControlPanel();
         setupFaultPanel();
-        setupEEPROMPanel();
+        // (EEPROM panel removed)
         setupProfilesPanel();
         
         // Menu bar for quick access
@@ -195,9 +178,8 @@ public class SeatControllerBusSniffer extends JFrame {
         JTabbedPane controlTabs = new JTabbedPane();
         controlTabs.addTab("Seat Control", seatControlPanel);
         controlTabs.addTab("Fault Monitor", faultPanel);
-        controlTabs.addTab("EEPROM", eepromPanel);
         controlTabs.addTab("Profiles", profilesPanel);
-        controlTabs.setSelectedIndex(3); // Show Profiles tab by default so buttons are visible
+        controlTabs.setSelectedIndex(2); // Show Profiles tab by default so buttons are visible
         centerPanel.add(controlTabs);
         
         // Status panel
@@ -255,23 +237,7 @@ public class SeatControllerBusSniffer extends JFrame {
         faultPanel.add(triggerFault2Btn);
     }
     
-    private void setupEEPROMPanel() {
-        eepromPanel.add(new JLabel("Address:"));
-        eepromPanel.add(eepromAddressField);
-        eepromPanel.add(new JLabel("Value:"));
-        eepromPanel.add(eepromValueField);
-        
-        eepromPanel.add(readByteBtn);
-        eepromPanel.add(writeByteBtn);
-        eepromPanel.add(readAllBtn);
-        eepromPanel.add(writeAllBtn);
-        
-        // Add empty labels for grid alignment
-        eepromPanel.add(new JLabel(""));
-        eepromPanel.add(new JLabel(""));
-        eepromPanel.add(new JLabel(""));
-        eepromPanel.add(new JLabel(""));
-    }
+    // (setupEEPROMPanel removed)
 
     private void setupProfilesPanel() {
         profilesPanel = new JPanel(new GridBagLayout());
@@ -309,17 +275,11 @@ public class SeatControllerBusSniffer extends JFrame {
         profInclineField.setColumns(8);
         gbc.gridx = 1; gbc.gridy = 3; gbc.weightx = 1; profilesPanel.add(profInclineField, gbc);
 
-        // Row 4: EEPROM address
-        gbc.gridx = 0; gbc.gridy = 4; gbc.weightx = 0; profilesPanel.add(new JLabel("EEPROM Addr (hex/dec):"), gbc);
-        profAddressField = new JTextField("0x0000");
-        profAddressField.setColumns(10);
-        gbc.gridx = 1; gbc.gridy = 4; gbc.weightx = 1; profilesPanel.add(profAddressField, gbc);
-
-        // Row 5: Buttons
+        // Row 4: Buttons
         JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         buttonRow.add(saveProfileBtn);
         buttonRow.add(loadProfileBtn);
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.weightx = 1; profilesPanel.add(buttonRow, gbc);
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2; gbc.weightx = 1; profilesPanel.add(buttonRow, gbc);
     }
 
     private void saveProfile() {
@@ -330,14 +290,8 @@ public class SeatControllerBusSniffer extends JFrame {
             double height = Double.parseDouble(profHeightField.getText().trim());
             double slide = Double.parseDouble(profSlideField.getText().trim());
             double incline = Double.parseDouble(profInclineField.getText().trim());
-            Integer addr = parseHexOrDecSafe(profAddressField.getText().trim());
-            if (addr != null) {
-                sniffer.saveProfileAt(addr, height, slide, incline);
-                traceArea.append("[SENT] saveprofile_at 0x" + Integer.toHexString(addr) + " H=" + height + " S=" + slide + " I=" + incline + "\n");
-            } else {
-                sniffer.saveProfile(id, height, slide, incline);
-                traceArea.append("[SENT] saveprofile " + id + " H=" + height + " S=" + slide + " I=" + incline + "\n");
-            }
+            sniffer.saveProfile(id, height, slide, incline);
+            traceArea.append("[SENT] saveprofile " + id + " H=" + height + " S=" + slide + " I=" + incline + "\n");
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, "Invalid profile id");
         }
@@ -347,28 +301,14 @@ public class SeatControllerBusSniffer extends JFrame {
         if (sniffer == null) return;
         try {
             int id = Integer.parseInt((String) profileSelect.getSelectedItem());
-            Integer addr = parseHexOrDecSafe(profAddressField.getText().trim());
-            if (addr != null) {
-                sniffer.loadProfileAt(addr);
-                traceArea.append("[SENT] loadprofile_at 0x" + Integer.toHexString(addr) + "\n");
-            } else {
-                sniffer.loadProfile(id);
-                traceArea.append("[SENT] loadprofile " + id + "\n");
-            }
+            sniffer.loadProfile(id);
+            traceArea.append("[SENT] loadprofile " + id + "\n");
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, "Invalid profile id");
         }
     }
 
-    private Integer parseHexOrDecSafe(String s) {
-        if (s == null || s.isEmpty()) return null;
-        try {
-            if (s.startsWith("0x") || s.startsWith("0X")) return Integer.parseInt(s.substring(2), 16);
-            return Integer.parseInt(s);
-        } catch (Exception e) {
-            return null;
-        }
-    }
+    // (parseHexOrDecSafe removed)
     
     private void toggleConnection() {
         if (sniffer == null) {
@@ -384,7 +324,7 @@ public class SeatControllerBusSniffer extends JFrame {
                 return;
             }
             
-            sniffer = new SnifferManager(new TraceListener() {
+            sniffer = new SeatControllerSnifferManager(new TraceListener() {
                 @Override
                 public void onTrace(String message) {
                     SwingUtilities.invokeLater(() -> {
@@ -419,11 +359,11 @@ public class SeatControllerBusSniffer extends JFrame {
                             Object h = map.get("heightCm");
                             Object s = map.get("slideCm");
                             Object i = map.get("inclineDeg");
-                            Object addr = map.get("address");
+                            Object addr = null; // removed EEPROM address support
                             if (h instanceof Number) profHeightField.setText(String.format("%.1f", ((Number)h).doubleValue()));
                             if (s instanceof Number) profSlideField.setText(String.format("%.1f", ((Number)s).doubleValue()));
                             if (i instanceof Number) profInclineField.setText(String.format("%.1f", ((Number)i).doubleValue()));
-                            if (addr instanceof Number) profAddressField.setText(String.format("0x%04X", ((Number)addr).intValue()));
+                            // no address field to update
                         });
                     }
                 }
@@ -470,7 +410,7 @@ public class SeatControllerBusSniffer extends JFrame {
                 }
                 
                 // Send seat control command (simplified)
-                String command = String.format("SEAT_CONTROL %.1f %.1f %.1f", height, slide, incline);
+                String command = String.format("SEND %.1f %.1f %.1f", height, slide, incline);
                 sniffer.sendCommand(command);
                 traceArea.append("[SENT] SeatControl_Req: H=" + height + " S=" + slide + " I=" + incline + "\n");
                 
@@ -500,35 +440,7 @@ public class SeatControllerBusSniffer extends JFrame {
         }
     }
     
-    private void performEEPROMOperation(String operation) {
-        if (sniffer != null) {
-            try {
-                int address = parseHexOrDec(eepromAddressField.getText());
-                
-                switch (operation) {
-                    case "ReadByte":
-                        sniffer.sendReadByte(address);
-                        break;
-                    case "WriteByte":
-                        int value = parseHexOrDec(eepromValueField.getText());
-                        sniffer.sendWriteByte(address, value);
-                        break;
-                    case "ReadAll":
-                        sniffer.sendReadByte(256);
-                        break;
-                    case "WriteAll":
-                        byte[] pattern = new byte[256];
-                        for (int i = 0; i < pattern.length; i++) {
-                            pattern[i] = (byte)(i & 0xFF);
-                        }
-                        sniffer.sendWriteAll(pattern);
-                        break;
-                }
-            } catch (NumberFormatException e) {
-                JOptionPane.showMessageDialog(this, "Invalid address or value format");
-            }
-        }
-    }
+    // (performEEPROMOperation removed)
     
     private int parseHexOrDec(String text) {
         text = text.trim();
@@ -565,7 +477,6 @@ public class SeatControllerBusSniffer extends JFrame {
         if (m.contains("GEARBOX")) return "Gearbox";
         if (m.contains("SEAT")) return "Seat";
         if (m.contains("FAULT")) return "Fault";
-        if (m.contains("EEPROM") || m.contains("READ") || m.contains("WRITE")) return "EEPROM";
         if (m.contains("ERROR")) return "Error";
         return "Data";
     }
@@ -649,7 +560,7 @@ public class SeatControllerBusSniffer extends JFrame {
             
             // Draw legend
             x = 10;
-            String[] types = {"Alive", "Gearbox", "Seat", "EEPROM", "Fault", "Error"};
+            String[] types = {"Alive", "Gearbox", "Seat", "Fault", "Error"};
             for (String type : types) {
                 g2.setColor(getColorForFrameType(type));
                 g2.fillRect(x, 90, 10, 10);
@@ -665,7 +576,6 @@ public class SeatControllerBusSniffer extends JFrame {
                 case "Alive": return Color.GREEN;
                 case "Gearbox": return Color.BLUE;
                 case "Seat": return Color.ORANGE;
-                case "EEPROM": return Color.CYAN;
                 case "Fault": return Color.RED;
                 case "Error": return Color.MAGENTA;
                 default: return Color.LIGHT_GRAY;
@@ -677,7 +587,6 @@ public class SeatControllerBusSniffer extends JFrame {
                 case "Alive": return "A";
                 case "Gearbox": return "G";
                 case "Seat": return "S";
-                case "EEPROM": return "E";
                 case "Fault": return "F";
                 case "Error": return "!";
                 default: return "?";

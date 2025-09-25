@@ -21,7 +21,7 @@ public interface TraceListener {
     
     /**
      * Called when a specific seat controller message is parsed
-     * @param messageType The type of message (ALIVE, GEARBOX, SEAT_CONTROL, etc.)
+     * @param messageType The type of message (ALIVE, GEARBOX, SEND, etc.)
      * @param data Parsed message data
      */
     default void onSeatControllerMessage(SeatControllerMessageType messageType, Object data) {
@@ -29,19 +29,7 @@ public interface TraceListener {
         onTrace("SEAT_MSG: " + messageType + " = " + data.toString());
     }
     
-    /**
-     * Called when an EEPROM operation response is received
-     * @param operation The EEPROM operation type
-     * @param address The memory address
-     * @param data The data read/written
-     * @param success Whether the operation was successful
-     */
-    default void onEEPROMResponse(EEPROMOperation operation, int address, byte[] data, boolean success) {
-        String result = success ? "SUCCESS" : "FAILED";
-        String dataStr = (data != null && data.length > 0) ? bytesToHex(data) : "N/A";
-        onTrace("EEPROM_" + operation + ": addr=0x" + Integer.toHexString(address) + 
-                " data=" + dataStr + " result=" + result);
-    }
+    
     
     /**
      * Called when a fault condition is detected or cleared
@@ -106,7 +94,7 @@ public interface TraceListener {
         SEAT_HEIGHT_CURRENT,
         SEAT_SLIDE_CURRENT,
         SEAT_INCLINE_CURRENT,
-        SEAT_CONTROL_REQUEST,
+        SEND_REQUEST,
         FAULT_MESSAGE,
         DIAGNOSTIC_MESSAGE,
         USER_PROFILE_DATA,
@@ -114,17 +102,7 @@ public interface TraceListener {
         UNKNOWN
     }
     
-    /**
-     * Enumeration of EEPROM operation types
-     */
-    enum EEPROMOperation {
-        READ_BYTE,
-        WRITE_BYTE,
-        READ_ALL,
-        WRITE_ALL,
-        ERASE,
-        VERIFY
-    }
+    
     
     /**
      * Communication statistics data structure

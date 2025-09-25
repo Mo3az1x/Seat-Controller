@@ -12,18 +12,12 @@ import java.nio.ByteOrder;
 public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCloseable {
     private final SerialComm serial = new SerialComm();
     private TraceListener listener;
-    private boolean lastLoadWasByAddress = false;
-    private int lastRequestedProfileAddress = -1;
 
     // Frame format constants
     private static final byte HEADER = 0x7E;
     private static final byte TAIL   = 0x7F;
 
     // Seat Controller specific command IDs
-    private static final byte CMD_READ_BYTE           = 0x01;
-    private static final byte CMD_WRITE_BYTE          = 0x02;
-    private static final byte CMD_READ_ALL            = 0x03;
-    private static final byte CMD_WRITE_ALL           = 0x04;
     private static final byte CMD_ALIVE_MSG           = 0x10;
     private static final byte CMD_GEARBOX_STATUS      = 0x11;
     private static final byte CMD_SEAT_HEIGHT_TARGET  = 0x20;
@@ -32,15 +26,11 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
     private static final byte CMD_SEAT_HEIGHT_CURRENT = 0x30;
     private static final byte CMD_SEAT_SLIDE_CURRENT  = 0x31;
     private static final byte CMD_SEAT_INCLINE_CURRENT= 0x32;
-    private static final byte CMD_SEAT_CONTROL_REQ    = 0x40;
+    private static final byte CMD_SEND_REQ    = 0x40;
     private static final byte CMD_FAULT_1             = 0x50;
     private static final byte CMD_FAULT_2             = 0x51;
 
     // Response IDs (command + 0x80)
-    private static final byte RES_READ_BYTE           = (byte)0x81;
-    private static final byte RES_WRITE_BYTE          = (byte)0x82;
-    private static final byte RES_READ_ALL            = (byte)0x83;
-    private static final byte RES_WRITE_ALL           = (byte)0x84;
 
     // Buffer for accumulating incoming data
     private StringBuilder textBuffer = new StringBuilder();
@@ -117,9 +107,9 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
         payload.putShort((short)slideRaw);
         payload.putShort((short)inclineRaw);
         
-        byte[] frame = buildFrame(CMD_SEAT_CONTROL_REQ, payload.array());
+        byte[] frame = buildFrame(CMD_SEND_REQ, payload.array());
         serial.send(frame);
-        log("SEAT_CONTROL_REQ: H=" + heightCm + "cm S=" + slideCm + "cm I=" + inclineDeg + "°");
+        log("SEND_REQ: H=" + heightCm + "cm S=" + slideCm + "cm I=" + inclineDeg + "°");
     }
     
     /**
@@ -212,49 +202,7 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
         log("FAULT_" + faultNumber + ": triggered at " + System.currentTimeMillis());
     }
 
-    // ======= EEPROM COMMANDS =======
-    
-    public void sendReadByte(int addr) {
-        ByteBuffer payload = ByteBuffer.allocate(4);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putInt(addr);
-        
-        byte[] frame = buildFrame(CMD_READ_BYTE, payload.array());
-        serial.send(frame);
-        log("EEPROM_READ_BYTE: addr=0x" + Integer.toHexString(addr));
-    }
-
-    public void sendWriteByte(int addr, int value) {
-        ByteBuffer payload = ByteBuffer.allocate(5);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putInt(addr);
-        payload.put((byte)(value & 0xFF));
-        
-        byte[] frame = buildFrame(CMD_WRITE_BYTE, payload.array());
-        serial.send(frame);
-        log("EEPROM_WRITE_BYTE: addr=0x" + Integer.toHexString(addr) + " val=0x" + Integer.toHexString(value));
-    }
-
-    public void sendReadAll(int size) {
-        ByteBuffer payload = ByteBuffer.allocate(4);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putInt(size);
-        
-        byte[] frame = buildFrame(CMD_READ_ALL, payload.array());
-        serial.send(frame);
-        log("EEPROM_READ_ALL: size=" + size + " bytes");
-    }
-
-    public void sendWriteAll(byte[] data) {
-        ByteBuffer payload = ByteBuffer.allocate(4 + data.length);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putInt(data.length);
-        payload.put(data);
-        
-        byte[] frame = buildFrame(CMD_WRITE_ALL, payload.array());
-        serial.send(frame);
-        log("EEPROM_WRITE_ALL: " + data.length + " bytes");
-    }
+    // (EEPROM commands removed)
     
     // ======= PROTOCOL-SPECIFIC FRAME BUILDING =======
     
@@ -353,56 +301,6 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
         buffer.order(ByteOrder.LITTLE_ENDIAN);
         
         switch (cmdId) {
-            case RES_READ_BYTE:
-                if (payload.length >= 5) {
-                    int addr = buffer.getInt();
-                    int val = buffer.get() & 0xFF;
-                    log("EEPROM_READ_RESPONSE: addr=0x" + Integer.toHexString(addr) + 
-                        " val=0x" + Integer.toHexString(val));
-                    if (listener != null) {
-                        byte[] data = new byte[] { (byte) val };
-                        TraceListener l = listener;
-                        SwingUtilities.invokeLater(() -> l.onEEPROMResponse(TraceListener.EEPROMOperation.READ_BYTE, addr, data, true));
-                    }
-                }
-                break;
-                
-            case RES_WRITE_BYTE:
-                if (payload.length >= 1) {
-                    boolean success = (buffer.get() == 1);
-                    log("EEPROM_WRITE_RESPONSE: " + (success ? "SUCCESS" : "FAILED"));
-                    if (listener != null) {
-                        TraceListener l = listener;
-                        SwingUtilities.invokeLater(() -> l.onEEPROMResponse(TraceListener.EEPROMOperation.WRITE_BYTE, -1, null, success));
-                    }
-                }
-                break;
-                
-            case RES_READ_ALL:
-                log("EEPROM_READ_ALL_RESPONSE: " + payload.length + " bytes received");
-                if (listener != null) {
-                    byte[] copy = payload.clone();
-                    TraceListener l = listener;
-                    SwingUtilities.invokeLater(() -> l.onEEPROMResponse(TraceListener.EEPROMOperation.READ_ALL, 0, copy, true));
-                }
-                // Preview
-                if (payload.length > 0) {
-                    String hexPreview = bytesToHex(payload, Math.min(payload.length, 16));
-                    log("First 16 bytes: " + hexPreview);
-                }
-                break;
-                
-            case RES_WRITE_ALL:
-                if (payload.length >= 1) {
-                    boolean success = (buffer.get() == 1);
-                    log("EEPROM_WRITE_ALL_RESPONSE: " + (success ? "SUCCESS" : "FAILED"));
-                    if (listener != null) {
-                        TraceListener l = listener;
-                        SwingUtilities.invokeLater(() -> l.onEEPROMResponse(TraceListener.EEPROMOperation.WRITE_ALL, 0, null, success));
-                    }
-                }
-                break;
-                
             case CMD_ALIVE_MSG:
                 if (payload.length >= 4) {
                     int timestamp = buffer.getShort() & 0xFFFF;
@@ -453,14 +351,9 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
                         data.put("heightCm", heightCm);
                         data.put("slideCm", slideCm);
                         data.put("inclineDeg", inclineDeg);
-                        if (lastLoadWasByAddress && lastRequestedProfileAddress >= 0) {
-                            data.put("address", lastRequestedProfileAddress);
-                        }
                         TraceListener l = listener;
                         SwingUtilities.invokeLater(() -> l.onSeatControllerMessage(TraceListener.SeatControllerMessageType.USER_PROFILE_DATA, data));
                     }
-                    lastLoadWasByAddress = false;
-                    lastRequestedProfileAddress = -1;
                 }
                 break;
                 
@@ -562,11 +455,10 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
         log("ERROR: " + error);
     }
 
-    // ======= PROFILE COMMANDS (save/load to EEPROM) =======
+    // ======= PROFILE COMMANDS =======
     private static final byte CMD_SAVE_PROFILE = 0x60;
     private static final byte CMD_LOAD_PROFILE = 0x61;
-    private static final byte CMD_SAVE_PROFILE_AT = 0x62;
-    private static final byte CMD_LOAD_PROFILE_AT = 0x63;
+    // (address-based profile commands removed)
 
     public void saveProfile(int profileId) {
         ByteBuffer payload = ByteBuffer.allocate(1);
@@ -597,33 +489,7 @@ public class SeatControllerSnifferManager implements SerialComm.DataSink, AutoCl
         byte[] frame = buildFrame(CMD_LOAD_PROFILE, payload.array());
         serial.send(frame);
         log("PROFILE_LOAD: id=" + profileId);
-        lastLoadWasByAddress = false;
-        lastRequestedProfileAddress = -1;
     }
 
-    public void saveProfileAt(int address, double heightCm, double slideCm, double inclineDeg) {
-        int heightRaw = (int)(heightCm * 100);
-        int slideRaw = (int)(slideCm * 100);
-        int inclineRaw = (int)(inclineDeg * 100);
-        ByteBuffer payload = ByteBuffer.allocate(2 + 6);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putShort((short)(address & 0xFFFF));
-        payload.putShort((short)heightRaw);
-        payload.putShort((short)slideRaw);
-        payload.putShort((short)inclineRaw);
-        byte[] frame = buildFrame(CMD_SAVE_PROFILE_AT, payload.array());
-        serial.send(frame);
-        log("PROFILE_SAVE_AT: addr=0x" + Integer.toHexString(address) + " H=" + heightCm + " S=" + slideCm + " I=" + inclineDeg);
-    }
-
-    public void loadProfileAt(int address) {
-        ByteBuffer payload = ByteBuffer.allocate(2);
-        payload.order(ByteOrder.LITTLE_ENDIAN);
-        payload.putShort((short)(address & 0xFFFF));
-        byte[] frame = buildFrame(CMD_LOAD_PROFILE_AT, payload.array());
-        serial.send(frame);
-        log("PROFILE_LOAD_AT: addr=0x" + Integer.toHexString(address));
-        lastLoadWasByAddress = true;
-        lastRequestedProfileAddress = address & 0xFFFF;
-    }
+    // saveProfileAt / loadProfileAt removed (EEPROM/address-based access removed)
 }
