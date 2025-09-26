@@ -33,17 +33,29 @@ extern "C" {
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN Private defines */
-
+#define ERROR_LED_GPIO_Port GPIOB
+#define ERROR_LED_Pin GPIO_PIN_0
+#define IDLE_LED_GPIO_Port GPIOB
+#define IDLE_LED_Pin GPIO_PIN_1
+#define MOVING_LED_GPIO_Port GPIOB
+#define MOVING_LED_Pin GPIO_PIN_2
 /* USER CODE END Private defines */
 
 void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+void ErrorLED_On(void);
+void ErrorLED_Off(void);
+void ErrorLED_Toggle(void);
+void IdleLED_On(void);
+void IdleLED_Off(void);
+void IdleLED_Toggle(void);
+void MovingLED_On(void);
+void MovingLED_Off(void);
+void MovingLED_Toggle(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
 }
 #endif
 #endif /*__ GPIO_H__ */
-
