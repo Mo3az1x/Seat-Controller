@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define switch_mode_Pin GPIO_PIN_13
 #define switch_mode_GPIO_Port GPIOC
+#define reset_Pin GPIO_PIN_0
+#define reset_GPIO_Port GPIOA
 #define USART_TX_Pin GPIO_PIN_2
 #define USART_TX_GPIO_Port GPIOA
 #define USART_RX_Pin GPIO_PIN_3
@@ -77,6 +79,14 @@ void Error_Handler(void);
 #define Slide_dwn_GPIO_Port GPIOC
 #define incline_dwn_Pin GPIO_PIN_0
 #define incline_dwn_GPIO_Port GPIOB
+#define SPI_CS_Pin GPIO_PIN_12
+#define SPI_CS_GPIO_Port GPIOB
+#define save_led_Pin GPIO_PIN_9
+#define save_led_GPIO_Port GPIOC
+#define BUTTON_LOAD_Pin GPIO_PIN_10
+#define BUTTON_LOAD_GPIO_Port GPIOA
+#define BUTTON_SAVE_Pin GPIO_PIN_11
+#define BUTTON_SAVE_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
@@ -85,6 +95,9 @@ void Error_Handler(void);
 #define SWO_GPIO_Port GPIOB
 #define i2c1_SCL_Pin GPIO_PIN_8
 #define i2c1_SCL_GPIO_Port GPIOB
+#define GEAR_BUTTON_GPIO_Port GPIOB
+#define GEAR_BUTTON_Pin GPIO_PIN_12
+#define I2C_SLAVE_ADD 0x28
 
 /* USER CODE BEGIN Private defines */
 
